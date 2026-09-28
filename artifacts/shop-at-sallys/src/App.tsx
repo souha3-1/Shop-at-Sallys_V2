@@ -79,7 +79,9 @@ function HomePage({ onAdd, wishlist, onWish }: { onAdd: (product: Product) => vo
           </div>
           <div className="hero-art entrance">
             <div className="orbit" />
-            <div className="art-poster" />
+            <div className="art-poster has-image">
+              <img src="/hero/starlight-01.png" alt="Starlight 01 artwork in yellow, green, and orange" />
+            </div>
             <div className="hero-stamp">OBJECTS<br />WITH A<br />POINT OF VIEW</div>
           </div>
         </div>
