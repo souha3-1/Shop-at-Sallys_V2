@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Shop at Sally's"
+description = "A polished Algerian online gift and lifestyle store where Van Gogh-inspired collections become everyday objects, stationery, and thoughtful gifts."
+version = "1.0.0"
+id = "artifacts/shop-at-sallys"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25333
+
+[services.development]
+run = "pnpm --filter @workspace/shop-at-sallys run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/shop-at-sallys", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/shop-at-sallys/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25333"
+BASE_PATH = "/"

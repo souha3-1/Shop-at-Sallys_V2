@@ -1,0 +1,1 @@
+- [Conversation app handoff](conversation-app-handoff.md) — after moving a conversation into a project, preserved app files may need artifact registration before preview works.
