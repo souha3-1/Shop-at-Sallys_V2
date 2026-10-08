@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { ErrorBoundary } from '@/components/error-boundary';
-import { collections, categories, money, products, type CollectionSlug, type Product } from '@/data/products';
+import { money, type Product } from '@/data/products';
+import { useCatalog } from '@/lib/catalog';
 import { EmptyState, ProductArtwork, ProductCard, ProductThumbnail, QuantityControl, ToastStack } from '@/components/store-ui';
 import { ArrowRight, Check, ChevronDown, ChevronLeft, Heart, Instagram, Mail, MapPin, Menu, Package, Search, ShieldCheck, ShoppingBag, Sparkles, Truck, UserRound, X } from 'lucide-react';
 import { Link, Route, Switch, useLocation, useParams, Router as WouterRouter } from 'wouter';
@@ -66,6 +67,7 @@ function Footer() {
 }
 
 function HomePage({ onAdd, wishlist, onWish }: { onAdd: (product: Product) => void; wishlist: string[]; onWish: (product: Product) => void }) {
+  const { products, collections } = useCatalog();
   const featured = products.filter((product) => product.featured).slice(0, 4);
   return (
     <main>
@@ -91,7 +93,7 @@ function HomePage({ onAdd, wishlist, onWish }: { onAdd: (product: Product) => vo
         <div className="container-wide">
           <div className="section-head"><div><span className="eyebrow">Five ways to look</span><h2 className="section-title display">Enter a painting.</h2></div><p className="section-intro">Start with a colour, a mood, or the artwork you return to. Each collection is a small world of useful things.</p></div>
           <div className="collection-rail">
-            {(Object.entries(collections) as [CollectionSlug, typeof collections[CollectionSlug]][]).map(([slug, collection]) => <Link key={slug} href={`/collection/${slug}`} className="collection-card" style={{ '--collection-bg': collection.background } as CSSProperties} data-testid={`card-collection-${slug}`}><span className="eyebrow">{collection.number}</span><h3>{collection.name}</h3><p>{collection.short}</p></Link>)}
+            {Object.entries(collections).map(([slug, collection]) => <Link key={slug} href={`/collection/${slug}`} className="collection-card" style={{ '--collection-bg': collection.background } as CSSProperties} data-testid={`card-collection-${slug}`}><span className="eyebrow">{collection.number}</span><h3>{collection.name}</h3><p>{collection.short}</p></Link>)}
           </div>
         </div>
       </section>
@@ -111,6 +113,7 @@ function HomePage({ onAdd, wishlist, onWish }: { onAdd: (product: Product) => vo
 }
 
 function ShopPage({ onAdd, wishlist, onWish }: { onAdd: (product: Product) => void; wishlist: string[]; onWish: (product: Product) => void }) {
+  const { products, collections, categories } = useCatalog();
   const [search, setSearch] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
@@ -128,16 +131,18 @@ function ShopPage({ onAdd, wishlist, onWish }: { onAdd: (product: Product) => vo
 
 function ProductPage({ onAdd, wishlist, onWish }: { onAdd: (product: Product, quantity?: number) => void; wishlist: string[]; onWish: (product: Product) => void }) {
   const { id } = useParams<{ id: string }>();
-  const product = products.find((item) => item.id === id);
+  const { products, collections } = useCatalog();
   const [quantity, setQuantity] = useState(1);
+  const product = products.find((item) => item.id === id);
   if (!product) return <main className="section container-wide"><EmptyState title="That object wandered off." text="The piece you were looking for is no longer on this shelf." action="Return to the shop" /></main>;
   const related = products.filter((item) => item.collection === product.collection && item.id !== product.id).slice(0, 4);
-  return <main className="detail-wrap"><div className="container-wide"><div className="breadcrumbs"><Link href="/shop">Shop</Link><ChevronLeft size={13} /><Link href={`/collection/${product.collection}`}>{collections[product.collection].name}</Link><ChevronLeft size={13} /><span>{product.name}</span></div><div className="detail-grid"><ProductArtwork product={product} detail /><div className="detail-copy"><span className="eyebrow">{collections[product.collection].name} · {product.category}</span><h1 className="display">{product.name}</h1><p className="price">{money(product.price)}</p><p className="body-copy">{product.description} {product.details}</p><div className="purchase-row"><QuantityControl quantity={quantity} onChange={setQuantity} testId={`quantity-${product.id}`} /><button className="btn btn-primary" onClick={() => onAdd(product, quantity)} data-testid={`button-add-detail-${product.id}`}><ShoppingBag size={16} /> Add to bag</button><button className="icon-btn" onClick={() => onWish(product)} aria-label="Save this object" data-testid={`button-save-detail-${product.id}`}><Heart fill={wishlist.includes(product.id) ? 'currentColor' : 'none'} /></button></div><div className="detail-note"><Truck size={18} /><span>Delivered across Algeria in 7–10 days. Payment on delivery, always.</span></div><div className="detail-note"><ShieldCheck size={18} /><span>Carefully wrapped in our Algiers studio, ready to gift or keep.</span></div></div></div></div><section className="section soft-section"><div className="container-wide"><div className="section-head"><div><span className="eyebrow">More from this room</span><h2 className="section-title display">Keep looking.</h2></div></div><div className="product-grid">{related.map((item) => <ProductCard key={item.id} product={item} wished={wishlist.includes(item.id)} onWish={() => onWish(item)} onAdd={() => onAdd(item)} />)}</div></div></section></main>;
+  return <main className="detail-wrap"><div className="container-wide"><div className="breadcrumbs"><Link href="/shop">Shop</Link><ChevronLeft size={13} /><Link href={`/collection/${product.collection}`}>{collections[product.collection]?.name ?? product.collection}</Link><ChevronLeft size={13} /><span>{product.name}</span></div><div className="detail-grid"><ProductArtwork product={product} detail /><div className="detail-copy"><span className="eyebrow">{collections[product.collection]?.name ?? product.collection} · {product.category}</span><h1 className="display">{product.name}</h1><p className="price">{money(product.price)}</p><p className="body-copy">{product.description} {product.details}</p><div className="purchase-row"><QuantityControl quantity={quantity} onChange={setQuantity} testId={`quantity-${product.id}`} /><button className="btn btn-primary" onClick={() => onAdd(product, quantity)} data-testid={`button-add-detail-${product.id}`}><ShoppingBag size={16} /> Add to bag</button><button className="icon-btn" onClick={() => onWish(product)} aria-label="Save this object" data-testid={`button-save-detail-${product.id}`}><Heart fill={wishlist.includes(product.id) ? 'currentColor' : 'none'} /></button></div><div className="detail-note"><Truck size={18} /><span>Delivered across Algeria in 7–10 days. Payment on delivery, always.</span></div><div className="detail-note"><ShieldCheck size={18} /><span>Carefully wrapped in our Algiers studio, ready to gift or keep.</span></div></div></div></div><section className="section soft-section"><div className="container-wide"><div className="section-head"><div><span className="eyebrow">More from this room</span><h2 className="section-title display">Keep looking.</h2></div></div><div className="product-grid">{related.map((item) => <ProductCard key={item.id} product={item} wished={wishlist.includes(item.id)} onWish={() => onWish(item)} onAdd={() => onAdd(item)} />)}</div></div></section></main>;
 }
 
 function CollectionPage({ onAdd, wishlist, onWish }: { onAdd: (product: Product) => void; wishlist: string[]; onWish: (product: Product) => void }) {
   const { slug } = useParams<{ slug: string }>();
-  const collection = collections[slug as CollectionSlug];
+  const { products, collections } = useCatalog();
+  const collection = collections[slug];
   const items = products.filter((product) => product.collection === slug);
   if (!collection) return <main className="section container-wide"><EmptyState title="Collection not found." text="There are five rooms in the shop. This is not one of them." action="See all objects" /></main>;
   return <main><section className="collection-banner" style={{ '--collection-bg': collection.background } as CSSProperties}><div className="container-wide"><span className="eyebrow">{collection.number} / Collection</span><h1 className="display">{collection.name}</h1><p>{collection.description}</p></div></section><section className="section"><div className="container-wide"><div className="section-head"><div><span className="eyebrow">{collection.short}</span><h2 className="section-title display">Objects from this room.</h2></div><p className="section-intro">{items.length} pieces, each designed to sit naturally in a life already in progress.</p></div><div className="product-grid">{items.map((product) => <ProductCard key={product.id} product={product} wished={wishlist.includes(product.id)} onWish={() => onWish(product)} onAdd={() => onAdd(product)} />)}</div></div></section></main>;
@@ -153,9 +158,10 @@ function ContactPage() {
 }
 
 function CartPage({ cart, onChange, onRemove }: { cart: CartLine[]; onChange: (id: string, quantity: number) => void; onRemove: (id: string) => void }) {
+  const { products, collections } = useCatalog();
   const total = cart.reduce((sum, line) => sum + (products.find((product) => product.id === line.productId)?.price ?? 0) * line.quantity, 0);
   if (!cart.length) return <main className="section container-wide"><EmptyState title="Your bag is a quiet place." text="Add a few useful, beautiful things and they will wait here for you." action="Browse the shop" /></main>;
-  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Your selection</span><h1 className="display">The bag.</h1></div></section><section className="section"><div className="container-wide cart-layout"><div className="cart-list">{cart.map((line) => { const product = products.find((item) => item.id === line.productId); if (!product) return null; return <div className="cart-item" key={line.productId}><ProductThumbnail product={product} /><div><h3>{product.name}</h3><p>{money(product.price)} · {collections[product.collection].name}</p></div><div className="cart-controls"><QuantityControl quantity={line.quantity} onChange={(quantity) => onChange(line.productId, quantity)} testId={`cart-quantity-${line.productId}`} /><button className="icon-btn" onClick={() => onRemove(line.productId)} aria-label={`Remove ${product.name}`} data-testid={`button-remove-${product.id}`}><X size={17} /></button></div></div>; })}</div><OrderSummary total={total} /></div></section></main>;
+  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Your selection</span><h1 className="display">The bag.</h1></div></section><section className="section"><div className="container-wide cart-layout"><div className="cart-list">{cart.map((line) => { const product = products.find((item) => item.id === line.productId); if (!product) return null; return <div className="cart-item" key={line.productId}><ProductThumbnail product={product} /><div><h3>{product.name}</h3><p>{money(product.price)} · {collections[product.collection]?.name ?? product.collection}</p></div><div className="cart-controls"><QuantityControl quantity={line.quantity} onChange={(quantity) => onChange(line.productId, quantity)} testId={`cart-quantity-${line.productId}`} /><button className="icon-btn" onClick={() => onRemove(line.productId)} aria-label={`Remove ${product.name}`} data-testid={`button-remove-${product.id}`}><X size={17} /></button></div></div>; })}</div><OrderSummary total={total} /></div></section></main>;
 }
 
 function OrderSummary({ total, checkout = false }: { total: number; checkout?: boolean }) {
@@ -164,6 +170,7 @@ function OrderSummary({ total, checkout = false }: { total: number; checkout?: b
 
 function CheckoutPage({ cart, onConfirm }: { cart: CartLine[]; onConfirm: (details: string) => void }) {
   const [confirmed, setConfirmed] = useState(false);
+  const { products } = useCatalog();
   const total = cart.reduce((sum, line) => sum + (products.find((product) => product.id === line.productId)?.price ?? 0) * line.quantity, 0);
   if (confirmed) return <main className="section container-wide"><div className="confirmation"><div className="confirmation-mark"><Check size={32} /></div><span className="eyebrow">Order confirmed</span><h1>Something lovely is on its way.</h1><p>Thank you for shopping with Sally's. We will call to confirm your order before it leaves Algiers, and it should arrive in 7–10 days.</p><p className="mono" style={{ fontSize:'.75rem', color:'var(--cobalt)' }}>PAYMENT ON DELIVERY · {money(total)}</p><Link href="/shop" className="btn btn-primary">Keep looking <ArrowRight size={15} /></Link></div></main>;
   if (!cart.length) return <main className="section container-wide"><EmptyState title="Your checkout is waiting." text="There is nothing in your bag yet." action="Browse the shop" /></main>;
@@ -171,6 +178,7 @@ function CheckoutPage({ cart, onConfirm }: { cart: CartLine[]; onConfirm: (detai
 }
 
 function WishlistPage({ wishlist, onWish, onAdd }: { wishlist: string[]; onWish: (product: Product) => void; onAdd: (product: Product) => void }) {
+  const { products } = useCatalog();
   const saved = products.filter((product) => wishlist.includes(product.id));
   return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Kept for later</span><h1 className="display">Your saved shelf.</h1><p>A place for the objects that made you pause.</p></div></section><section className="section"><div className="container-wide">{saved.length ? <div className="product-grid">{saved.map((product) => <ProductCard key={product.id} product={product} wished onWish={() => onWish(product)} onAdd={() => onAdd(product)} />)}</div> : <EmptyState title="Nothing saved yet." text="When something catches your eye, tap the heart and it will stay here." action="Find a piece" />}</div></section></main>;
 }
@@ -180,6 +188,7 @@ function AccountPage() {
 }
 
 function CartDrawer({ cart, open, onClose, onChange, onRemove }: { cart: CartLine[]; open: boolean; onClose: () => void; onChange: (id: string, quantity: number) => void; onRemove: (id: string) => void }) {
+  const { products, collections } = useCatalog();
   if (!open) return null;
   const total = cart.reduce((sum, line) => sum + (products.find((product) => product.id === line.productId)?.price ?? 0) * line.quantity, 0);
   return <div style={{ position:'fixed', inset:0, zIndex:35, background:'rgba(31,58,95,.36)' }} onClick={onClose}><aside onClick={(event) => event.stopPropagation()} style={{ marginLeft:'auto', height:'100%', width:'min(440px,100%)', background:'var(--cream)', padding:'24px', overflowY:'auto', boxShadow:'-15px 0 35px rgba(31,58,95,.17)' }}><div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid var(--border)', paddingBottom:17, marginBottom:20 }}><h2 className="display" style={{ color:'var(--midnight)', fontSize:'2rem', margin:0 }}>Your bag</h2><button className="icon-btn" onClick={onClose} aria-label="Close bag" data-testid="button-close-cart"><X /></button></div>{cart.length ? <><div className="cart-list">{cart.map((line) => { const product = products.find((item) => item.id === line.productId); if (!product) return null; return <div className="cart-item" key={line.productId}><ProductThumbnail product={product} /><div><h3 style={{ fontSize:'1rem' }}>{product.name}</h3><p>{money(product.price)}</p></div><div className="cart-controls"><QuantityControl quantity={line.quantity} onChange={(quantity) => onChange(line.productId, quantity)} testId={`drawer-quantity-${product.id}`} /><button className="icon-btn" onClick={() => onRemove(product.id)} aria-label={`Remove ${product.name}`}><X size={15} /></button></div></div>; })}</div><div style={{ marginTop:28 }}><div className="summary-row total"><span>Total</span><span>{money(total)}</span></div><Link href="/checkout" className="btn btn-primary" style={{ width:'100%', marginTop:15 }} onClick={onClose} data-testid="button-drawer-checkout">Checkout <ArrowRight size={15} /></Link><Link href="/cart" className="btn btn-quiet" style={{ width:'100%', marginTop:9 }} onClick={onClose}>View bag</Link></div></> : <EmptyState title="A quiet bag." text="Add something beautiful and useful from the shop." action="Browse objects" />}</aside></div>;
@@ -191,6 +200,25 @@ function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [location] = useLocation();
+  const { isLoading, isError, refetch } = useCatalog();
+  if (isLoading || isError) {
+    return (
+      <div className="app-shell paper-noise" role={isError ? 'alert' : 'status'}>
+        <Header cart={cart} wishlist={wishlist} onCart={() => setDrawerOpen(true)} />
+        <main className="section container-wide" style={{ minHeight: '45vh', display: 'grid', placeItems: 'center', textAlign: 'center' }}>
+          {isError ? (
+            <div className="empty-state" data-testid="catalog-error">
+              <h2>The shelves didn't load.</h2>
+              <p>We couldn't reach the catalog from Supabase. Check the connection and try again.</p>
+              <button className="btn btn-primary" onClick={() => refetch()}>Try again</button>
+            </div>
+          ) : (
+            <p className="mono" data-testid="catalog-loading">Opening the shop…</p>
+          )}
+        </main>
+      </div>
+    );
+  }
   const addToast = (message: string) => {
     const id = Date.now();
     setToasts((current) => [...current, { id, message }]);

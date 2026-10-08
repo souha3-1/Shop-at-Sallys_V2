@@ -2,7 +2,8 @@ import { Heart, Minus, Plus, ShoppingBag, X, Check, Sparkles } from 'lucide-reac
 import type { CSSProperties } from 'react';
 import { Link } from 'wouter';
 import type { Product } from '@/data/products';
-import { collections, money } from '@/data/products';
+import { money } from '@/data/products';
+import { useCatalog } from '@/lib/catalog';
 
 export const artworkVars = (product: Product) => {
   const palette: Record<string, [string,string,string]> = {
@@ -12,16 +13,17 @@ export const artworkVars = (product: Product) => {
     wheatfield: ['#899A68','#F3C84B','#D69A32'],
     'almond-blossoms': ['#3F6691','#E6D4B8','#B9A4D6'],
   };
-  const [bg, blob, accent] = palette[product.collection];
+  const [bg, blob, accent] = palette[product.collection] ?? palette['starry-night'];
   return { '--art-bg': `linear-gradient(145deg, ${bg}, ${accent})`, '--art-blob': blob, '--art-accent': accent } as CSSProperties;
 };
 
 export function ProductArtwork({ product, detail = false }: { product: Product; detail?: boolean }) {
+  const { collections } = useCatalog();
   const collection = collections[product.collection];
   const hasProductImage = product.image.startsWith('/products/');
   return (
     <div className={`${detail ? 'detail-image' : 'product-image'}${hasProductImage ? ' photo-image' : ''}`} style={artworkVars(product)} data-testid={`img-product-${product.id}`}>
-      {hasProductImage ? <img src={product.image} alt={product.name} loading={detail ? 'eager' : 'lazy'} /> : <><span className="art-label">{collection.name}<small>{product.category} / {collection.number}</small></span><div aria-hidden="true" /></>}
+      {hasProductImage ? <img src={product.image} alt={product.name} loading={detail ? 'eager' : 'lazy'} /> : <><span className="art-label">{collection?.name ?? product.collection}<small>{product.category} / {collection?.number ?? ''}</small></span><div aria-hidden="true" /></>}
     </div>
   );
 }
@@ -36,6 +38,7 @@ export function ProductThumbnail({ product }: { product: Product }) {
 }
 
 export function ProductCard({ product, wished, onWish, onAdd }: { product: Product; wished: boolean; onWish: () => void; onAdd: () => void }) {
+  const { collections } = useCatalog();
   return (
     <article className="product-card entrance" data-testid={`card-product-${product.id}`}>
       <Link href={`/product/${product.id}`} aria-label={`View ${product.name}`}>
@@ -50,7 +53,7 @@ export function ProductCard({ product, wished, onWish, onAdd }: { product: Produ
       <div className="product-info">
         <div>
           <h3><Link href={`/product/${product.id}`}>{product.name}</Link></h3>
-          <p className="product-meta">{collections[product.collection].name} · {product.category}</p>
+          <p className="product-meta">{collections[product.collection]?.name ?? product.collection} · {product.category}</p>
         </div>
         <span className="price">{money(product.price)}</span>
       </div>
