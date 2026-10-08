@@ -16,6 +16,14 @@ begin;
 -- ---------------------------------------------------------------------------
 -- SECTION 0 — seed (as postgres, RLS does not apply to the table owner)
 -- ---------------------------------------------------------------------------
+-- The Phase 4 seed owns the live catalog rows; this suite builds its own
+-- fixtures inside this transaction and ROLLS BACK at the end, which restores
+-- the seeded rows untouched. (Counts asserted below assume only fixtures.)
+delete from public.inventory;
+delete from public.products;
+delete from public.collections;
+delete from public.categories;
+
 insert into public.categories (slug, name, sort_order) values ('mugs', 'Mugs', 1);
 
 insert into public.collections (slug, name, is_published, display_number)

@@ -14,6 +14,14 @@ begin;
 -- ---------------------------------------------------------------------------
 -- VALID INSERTS
 -- ---------------------------------------------------------------------------
+-- The Phase 4 seed owns the live catalog rows; this suite builds its own
+-- fixtures inside this transaction and ROLLS BACK at the end, which restores
+-- the seeded rows untouched.
+delete from public.inventory;
+delete from public.products;
+delete from public.collections;
+delete from public.categories;
+
 insert into public.categories (slug, name, sort_order) values ('mugs', 'Mugs', 1);
 insert into public.categories (slug, name, sort_order) values ('posters', 'Posters', 2);
 
