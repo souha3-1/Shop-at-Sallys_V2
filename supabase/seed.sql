@@ -1,0 +1,1 @@
+-- Local seed file (intentionally empty in Phase 2: no product/customer seed data yet)
