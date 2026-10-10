@@ -72,6 +72,15 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // Phase 5: same-origin '/api/...' calls in the browser are forwarded to
+    // the api-server (dev only). Production serves the API as its own
+    // artifact/service; no proxy applies there.
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port,
