@@ -10,6 +10,10 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: cart
+    description: Server-side guest cart operations (Phase 5)
+  - name: orders
+    description: Checkout / order placement (Phase 5)
 paths:
   /healthz:
     get:
@@ -24,7 +28,200 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /cart:
+    post:
+      operationId: createCart
+      tags: [cart]
+      summary: Create an empty guest cart
+      description: >
+        Creates a new empty cart and returns its id. The client stores the id
+        (localStorage) and sends it with every later cart call — it is an
+        unguessable bearer capability for a guest cart. Carts are private to
+        this API; they are not reachable through the Supabase Data API.
+      responses:
+        "201":
+          description: Newly created (empty) cart
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cart"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /cart/{cartId}:
+    get:
+      operationId: getCart
+      tags: [cart]
+      summary: Get a cart with its lines and live subtotal
+      description: >
+        Returns the cart's lines joined to active products (live prices).
+        Products that left the catalog are not returned.
+      parameters:
+        - $ref: "#/components/parameters/CartId"
+      responses:
+        "200":
+          description: The cart
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cart"
+        "404":
+          description: Unknown cart id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /cart/{cartId}/items:
+    post:
+      operationId: addCartItem
+      tags: [cart]
+      summary: Add a product to the cart (merge-on-add)
+      description: >
+        Adds quantity to the product's line, creating it if missing (matches
+        the storefront's "Add to bag" behaviour). Prices are never accepted
+        from the client — the server reads the live catalog price.
+      parameters:
+        - $ref: "#/components/parameters/CartId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCartItemRequest"
+      responses:
+        "200":
+          description: Updated cart
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cart"
+        "400":
+          description: Invalid quantity or product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+        "404":
+          description: Unknown cart id or unknown/inactive product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /cart/{cartId}/items/{productId}:
+    patch:
+      operationId: updateCartItem
+      tags: [cart]
+      summary: Set a cart line's quantity (0 removes the line)
+      parameters:
+        - $ref: "#/components/parameters/CartId"
+        - $ref: "#/components/parameters/ProductId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCartItemRequest"
+      responses:
+        "200":
+          description: Updated cart
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cart"
+        "400":
+          description: Invalid quantity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+        "404":
+          description: Unknown cart id or product not in this cart
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+    delete:
+      operationId: removeCartItem
+      tags: [cart]
+      summary: Remove a line from the cart
+      parameters:
+        - $ref: "#/components/parameters/CartId"
+        - $ref: "#/components/parameters/ProductId"
+      responses:
+        "200":
+          description: Updated cart
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cart"
+        "404":
+          description: Unknown cart id or product not in this cart
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+  /orders:
+    post:
+      operationId: placeOrder
+      tags: [orders]
+      summary: Place an order from a cart (checkout)
+      description: >
+        Validates the contact details, recomputes totals server-side from live
+        catalog prices (the client's numbers are never trusted), snapshots the
+        lines into order_items, allocates an 'SS-XXXX' reference, and empties
+        the cart. Payment on delivery: no payment data is collected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaceOrderRequest"
+      responses:
+        "201":
+          description: Order placed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          description: Invalid contact details or payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+        "404":
+          description: Unknown cart id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
+        "409":
+          description: Cart is empty or contains products that left the catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
 components:
+  parameters:
+    CartId:
+      name: cartId
+      in: path
+      required: true
+      description: Cart id previously returned by POST /cart
+      schema:
+        type: string
+        format: uuid
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      description: Catalog product id (e.g. "sn-mug")
+      schema:
+        type: string
+        maxLength: 160
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +230,136 @@ components:
           type: string
       required:
         - status
-
+    ApiErrorBody:
+      type: object
+      properties:
+        message:
+          type: string
+        product_ids:
+          type: array
+          description: >
+            Present on checkout conflicts (409): cart lines whose products
+            left the catalog; the client should drop them and retry.
+          items:
+            type: string
+      required:
+        - message
+    CartItem:
+      type: object
+      description: A cart line with the live catalog price at read time
+      properties:
+        product_id:
+          type: string
+        name:
+          type: string
+        unit_price_da:
+          type: integer
+          minimum: 0
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+        line_total_da:
+          type: integer
+          minimum: 0
+      required:
+        - product_id
+        - name
+        - unit_price_da
+        - quantity
+        - line_total_da
+    Cart:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CartItem"
+        item_count:
+          type: integer
+          minimum: 0
+          description: Total units across all lines
+        subtotal_da:
+          type: integer
+          minimum: 0
+      required:
+        - id
+        - items
+        - item_count
+        - subtotal_da
+    AddCartItemRequest:
+      type: object
+      properties:
+        product_id:
+          type: string
+          maxLength: 160
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+      required:
+        - product_id
+        - quantity
+    UpdateCartItemRequest:
+      type: object
+      properties:
+        quantity:
+          type: integer
+          minimum: 0
+          maximum: 99
+          description: 0 removes the line
+      required:
+        - quantity
+    PlaceOrderRequest:
+      type: object
+      properties:
+        cart_id:
+          type: string
+          format: uuid
+        contact_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        contact_phone:
+          type: string
+          pattern: '^\+?[0-9 ()-]{6,20}$'
+        shipping_address:
+          type: string
+          minLength: 1
+          maxLength: 500
+        customer_note:
+          type: string
+          maxLength: 500
+      required:
+        - cart_id
+        - contact_name
+        - contact_phone
+        - shipping_address
+    Order:
+      type: object
+      description: The placed order (payment on delivery)
+      properties:
+        reference:
+          type: string
+          pattern: '^SS-[0-9]{4,10}$'
+        item_count:
+          type: integer
+          minimum: 1
+        subtotal_da:
+          type: integer
+          minimum: 0
+        delivery_fee_da:
+          type: integer
+          minimum: 0
+        total_da:
+          type: integer
+          minimum: 0
+      required:
+        - reference
+        - item_count
+        - subtotal_da
+        - delivery_fee_da
+        - total_da

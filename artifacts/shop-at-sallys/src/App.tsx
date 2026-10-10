@@ -7,6 +7,19 @@ import { EmptyState, ProductArtwork, ProductCard, ProductThumbnail, QuantityCont
 import { ArrowRight, Check, ChevronDown, ChevronLeft, Heart, Instagram, Mail, MapPin, Menu, Package, Search, ShieldCheck, ShoppingBag, Sparkles, Truck, UserRound, X } from 'lucide-react';
 import { Link, Route, Switch, useLocation, useParams, Router as WouterRouter } from 'wouter';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  ApiError,
+  addCartItem,
+  getGetCartQueryKey,
+  placeOrder,
+  removeCartItem,
+  updateCartItem,
+  useGetCart,
+  type Cart as ServerCart,
+  type Order,
+  type PlaceOrderRequest,
+} from '@workspace/api-client-react';
+import { createServerCart, readStoredCartId } from '@/lib/cart';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
@@ -168,13 +181,15 @@ function OrderSummary({ total, checkout = false }: { total: number; checkout?: b
   return <div className="cart-summary"><h2>{checkout ? 'Your order' : 'A good selection.'}</h2><div className="summary-row"><span>Objects</span><span>{money(total)}</span></div><div className="summary-row"><span>Delivery</span><span>{total >= 5000 ? 'Free' : 'Calculated at delivery'}</span></div><div className="summary-row total"><span>Total</span><span>{money(total)}</span></div>{!checkout && <Link className="btn btn-secondary" href="/checkout" data-testid="button-go-checkout">Continue to checkout <ArrowRight size={15} /></Link>}</div>;
 }
 
-function CheckoutPage({ cart, onConfirm }: { cart: CartLine[]; onConfirm: (details: string) => void }) {
-  const [confirmed, setConfirmed] = useState(false);
+function CheckoutPage({ cart, onSubmitOrder }: { cart: CartLine[]; onSubmitOrder: (details: Omit<PlaceOrderRequest, 'cart_id'>) => Promise<Order> }) {
+  const [placed, setPlaced] = useState<Order | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { products } = useCatalog();
   const total = cart.reduce((sum, line) => sum + (products.find((product) => product.id === line.productId)?.price ?? 0) * line.quantity, 0);
-  if (confirmed) return <main className="section container-wide"><div className="confirmation"><div className="confirmation-mark"><Check size={32} /></div><span className="eyebrow">Order confirmed</span><h1>Something lovely is on its way.</h1><p>Thank you for shopping with Sally's. We will call to confirm your order before it leaves Algiers, and it should arrive in 7–10 days.</p><p className="mono" style={{ fontSize:'.75rem', color:'var(--cobalt)' }}>PAYMENT ON DELIVERY · {money(total)}</p><Link href="/shop" className="btn btn-primary">Keep looking <ArrowRight size={15} /></Link></div></main>;
+  if (placed) return <main className="section container-wide"><div className="confirmation"><div className="confirmation-mark"><Check size={32} /></div><span className="eyebrow">Order confirmed</span><h1>Something lovely is on its way.</h1><p>Thank you for shopping with Sally's. We will call to confirm your order before it leaves Algiers, and it should arrive in 7–10 days.</p><p className="mono" style={{ fontSize:'.75rem', color:'var(--cobalt)' }} data-testid="order-reference">ORDER {placed.reference} · PAYMENT ON DELIVERY · {money(placed.total_da)}</p><Link href="/shop" className="btn btn-primary">Keep looking <ArrowRight size={15} /></Link></div></main>;
   if (!cart.length) return <main className="section container-wide"><EmptyState title="Your checkout is waiting." text="There is nothing in your bag yet." action="Browse the shop" /></main>;
-  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Almost yours</span><h1 className="display">Checkout.</h1><p>Just the essentials. We will call before delivery and collect payment at your door.</p></div></section><section className="section"><div className="container-wide checkout-grid"><div className="form-card"><form onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; if (!form.checkValidity()) return; onConfirm('order'); setConfirmed(true); }}><h2>Delivery details</h2><div className="field"><label htmlFor="checkout-name">Full name</label><input id="checkout-name" required placeholder="Amina Belkacem" data-testid="input-checkout-name" /></div><div className="field"><label htmlFor="checkout-phone">Phone number</label><input id="checkout-phone" type="tel" required placeholder="05 50 00 00 00" data-testid="input-checkout-phone" /></div><div className="field"><label htmlFor="checkout-address">Delivery address</label><textarea id="checkout-address" required placeholder="Street, neighbourhood, city" data-testid="input-checkout-address" /></div><div className="field"><label htmlFor="checkout-note">Note for the studio (optional)</label><input id="checkout-note" placeholder="This is a gift..." data-testid="input-checkout-note" /></div><div style={{ border:'1px solid var(--border)', padding:15, display:'flex', gap:11, alignItems:'start', marginBottom:22 }}><ShieldCheck size={19} color="var(--olive)" /><div><strong style={{ color:'var(--midnight)', fontSize:'.86rem' }}>Payment on delivery</strong><p style={{ margin:'4px 0 0', color:'var(--ink)', fontSize:'.78rem' }}>No card details needed. Pay in cash when your parcel arrives.</p></div></div><button className="btn btn-primary" type="submit" data-testid="button-place-order">Place order · {money(total)} <ArrowRight size={15} /></button></form></div><OrderSummary total={total} checkout /></div></section></main>;
+  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Almost yours</span><h1 className="display">Checkout.</h1><p>Just the essentials. We will call before delivery and collect payment at your door.</p></div></section><section className="section"><div className="container-wide checkout-grid"><div className="form-card"><form onSubmit={async (event) => { event.preventDefault(); const form = event.currentTarget; if (!form.checkValidity() || submitting) return; const data = new FormData(form); setError(null); setSubmitting(true); try { const order = await onSubmitOrder({ contact_name: String(data.get('checkout-name') ?? ''), contact_phone: String(data.get('checkout-phone') ?? ''), shipping_address: String(data.get('checkout-address') ?? ''), customer_note: String(data.get('checkout-note') ?? '') || undefined }); setPlaced(order); } catch (err) { setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.'); } finally { setSubmitting(false); } }}><h2>Delivery details</h2><div className="field"><label htmlFor="checkout-name">Full name</label><input id="checkout-name" name="checkout-name" required placeholder="Amina Belkacem" data-testid="input-checkout-name" /></div><div className="field"><label htmlFor="checkout-phone">Phone number</label><input id="checkout-phone" name="checkout-phone" type="tel" required placeholder="05 50 00 00 00" data-testid="input-checkout-phone" /></div><div className="field"><label htmlFor="checkout-address">Delivery address</label><textarea id="checkout-address" name="checkout-address" required placeholder="Street, neighbourhood, city" data-testid="input-checkout-address" /></div><div className="field"><label htmlFor="checkout-note">Note for the studio (optional)</label><input id="checkout-note" name="checkout-note" placeholder="This is a gift..." data-testid="input-checkout-note" /></div><div style={{ border:'1px solid var(--border)', padding:15, display:'flex', gap:11, alignItems:'start', marginBottom:22 }}><ShieldCheck size={19} color="var(--olive)" /><div><strong style={{ color:'var(--midnight)', fontSize:'.86rem' }}>Payment on delivery</strong><p style={{ margin:'4px 0 0', color:'var(--ink)', fontSize:'.78rem' }}>No card details needed. Pay in cash when your parcel arrives.</p></div></div>{error && <div className="field" role="alert" data-testid="checkout-error"><p style={{ color:'var(--ochre)', margin:0, fontSize:'.82rem' }}>{error}</p></div>}<button className="btn btn-primary" type="submit" disabled={submitting} data-testid="button-place-order">{submitting ? 'Placing your order…' : <>Place order · {money(total)} <ArrowRight size={15} /></>}</button></form></div><OrderSummary total={total} checkout /></div></section></main>;
 }
 
 function WishlistPage({ wishlist, onWish, onAdd }: { wishlist: string[]; onWish: (product: Product) => void; onAdd: (product: Product) => void }) {
@@ -195,12 +210,24 @@ function CartDrawer({ cart, open, onClose, onChange, onRemove }: { cart: CartLin
 }
 
 function AppShell() {
-  const [cart, setCart] = useState<CartLine[]>([]);
+  // Phase 5: the bag lives in the api-server; the browser only holds the
+  // cart uuid (localStorage). Components still receive plain CartLine[] so
+  // the UI is unchanged — only where the data comes from is different.
+  const [cartId, setCartId] = useState<string | null>(() => readStoredCartId());
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [location] = useLocation();
   const { isLoading, isError, refetch } = useCatalog();
+  const cartQuery = useGetCart(cartId ?? '', {
+    query: { queryKey: getGetCartQueryKey(cartId ?? ''), enabled: Boolean(cartId), retry: false },
+  });
+  // A stored id that no longer exists server-side reads as an empty bag;
+  // the next add creates a fresh cart.
+  const cartMissing = cartQuery.error instanceof ApiError && cartQuery.error.status === 404;
+  const cart: CartLine[] = cartMissing
+    ? []
+    : (cartQuery.data?.items.map((line) => ({ productId: line.product_id, quantity: line.quantity })) ?? []);
   if (isLoading || isError) {
     return (
       <div className="app-shell paper-noise" role={isError ? 'alert' : 'status'}>
@@ -224,20 +251,62 @@ function AppShell() {
     setToasts((current) => [...current, { id, message }]);
     window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 3500);
   };
-  const addToCart = (product: Product, quantity = 1) => {
-    setCart((current) => {
-      const existing = current.find((line) => line.productId === product.id);
-      return existing ? current.map((line) => line.productId === product.id ? { ...line, quantity: line.quantity + quantity } : line) : [...current, { productId: product.id, quantity }];
-    });
-    addToast(`${product.name} added to your bag.`);
+  const syncCart = (fresh: ServerCart) => {
+    queryClient.setQueryData(getGetCartQueryKey(fresh.id), fresh);
+  };
+  const ensureCartId = async (): Promise<string> => {
+    if (cartId && !cartMissing) return cartId;
+    const id = await createServerCart();
+    setCartId(id);
+    return id;
+  };
+  const addToCart = async (product: Product, quantity = 1) => {
+    try {
+      const id = await ensureCartId();
+      syncCart(await addCartItem(id, { product_id: product.id, quantity }));
+      addToast(`${product.name} added to your bag.`);
+    } catch (error) {
+      addToast(`Couldn't add ${product.name}: ${error instanceof Error ? error.message : 'please try again'}`);
+    }
   };
   const toggleWishlist = (product: Product) => {
     setWishlist((current) => current.includes(product.id) ? current.filter((id) => id !== product.id) : [...current, product.id]);
     addToast(wishlist.includes(product.id) ? `${product.name} removed from saved pieces.` : `${product.name} saved for later.`);
   };
-  const updateCart = (id: string, quantity: number) => setCart((current) => current.map((line) => line.productId === id ? { ...line, quantity } : line));
-  const removeCart = (id: string) => setCart((current) => current.filter((line) => line.productId !== id));
-  return <div className="app-shell paper-noise"><Header cart={cart} wishlist={wishlist} onCart={() => setDrawerOpen(true)} /><div className="entrance" key={location}><Switch><Route path="/" component={() => <HomePage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} />} /><Route path="/shop" component={() => <ShopPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} />} /><Route path="/product/:id" component={() => <ProductPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} />} /><Route path="/collection/:slug" component={() => <CollectionPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} />} /><Route path="/about" component={AboutPage} /><Route path="/contact" component={ContactPage} /><Route path="/wishlist" component={() => <WishlistPage wishlist={wishlist} onWish={toggleWishlist} onAdd={addToCart} />} /><Route path="/account" component={AccountPage} /><Route path="/cart" component={() => <CartPage cart={cart} onChange={updateCart} onRemove={removeCart} />} /><Route path="/checkout" component={() => <CheckoutPage cart={cart} onConfirm={() => {}} />} /><Route component={NotFound} /></Switch></div><Footer /><CartDrawer cart={cart} open={drawerOpen} onClose={() => setDrawerOpen(false)} onChange={updateCart} onRemove={removeCart} /><ToastStack toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} /></div>;
+  const updateCart = async (id: string, quantity: number) => {
+    if (!cartId || cartMissing) return;
+    try {
+      syncCart(await updateCartItem(cartId, id, { quantity }));
+    } catch (error) {
+      addToast(`Couldn't update your bag: ${error instanceof Error ? error.message : 'please try again'}`);
+    }
+  };
+  const removeCart = async (id: string) => {
+    if (!cartId || cartMissing) return;
+    try {
+      syncCart(await removeCartItem(cartId, id));
+    } catch (error) {
+      addToast(`Couldn't update your bag: ${error instanceof Error ? error.message : 'please try again'}`);
+    }
+  };
+  // Checkout: the server recomputes totals from live prices, snapshots the
+  // order and empties the bag; the returned Order drives the confirmation.
+  const submitOrder = async (details: Omit<PlaceOrderRequest, 'cart_id'>): Promise<Order> => {
+    if (!cartId || cartMissing) throw new Error('Your bag is empty.');
+    try {
+      const order = await placeOrder({ ...details, cart_id: cartId });
+      queryClient.setQueryData(getGetCartQueryKey(cartId), { id: cartId, items: [], item_count: 0, subtotal_da: 0 } satisfies ServerCart);
+      return order;
+    } catch (error) {
+      // 409: some lines left the catalog — drop them so the next attempt is clean.
+      if (error instanceof ApiError && error.status === 409) {
+        const ids = (error.data as { product_ids?: string[] } | null)?.product_ids ?? [];
+        await Promise.all(ids.map((productId) => removeCartItem(cartId, productId).then(syncCart).catch(() => undefined)));
+      }
+      throw error;
+    }
+  };
+  return <div className="app-shell paper-noise"><Header cart={cart} wishlist={wishlist} onCart={() => setDrawerOpen(true)} /><div className="entrance" key={location}>{/* Routes pass elements (not inline `component` arrows) so page components keep a stable type across AppShell re-renders — React Query cart updates would otherwise remount the page and wipe local state (e.g. the placed-order confirmation). */}<Switch><Route path="/"><HomePage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/shop"><ShopPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/product/:id"><ProductPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/collection/:slug"><CollectionPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/about"><AboutPage /></Route><Route path="/contact"><ContactPage /></Route><Route path="/wishlist"><WishlistPage wishlist={wishlist} onWish={toggleWishlist} onAdd={addToCart} /></Route><Route path="/account"><AccountPage /></Route><Route path="/cart"><CartPage cart={cart} onChange={updateCart} onRemove={removeCart} /></Route><Route path="/checkout"><CheckoutPage cart={cart} onSubmitOrder={submitOrder} /></Route><Route><NotFound /></Route></Switch></div><Footer /><CartDrawer cart={cart} open={drawerOpen} onClose={() => setDrawerOpen(false)} onChange={updateCart} onRemove={removeCart} /><ToastStack toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} /></div>;
 }
 
 function App() {
