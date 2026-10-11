@@ -9,9 +9,23 @@ export interface HealthStatus {
   status: string;
 }
 
+/**
+ * Present on 409 conflicts. `unavailable`: cart lines whose products left the catalog — the client should drop them and retry. `out_of_stock`: tracked stock is insufficient — keep the lines and let the customer reduce quantities. `empty_cart`: nothing to order.
+ */
+export type ApiErrorBodyCode = typeof ApiErrorBodyCode[keyof typeof ApiErrorBodyCode];
+
+
+export const ApiErrorBodyCode = {
+  unavailable: 'unavailable',
+  out_of_stock: 'out_of_stock',
+  empty_cart: 'empty_cart',
+} as const;
+
 export interface ApiErrorBody {
   message: string;
-  /** Present on checkout conflicts (409): cart lines whose products left the catalog; the client should drop them and retry. */
+  /** Present on 409 conflicts. `unavailable`: cart lines whose products left the catalog — the client should drop them and retry. `out_of_stock`: tracked stock is insufficient — keep the lines and let the customer reduce quantities. `empty_cart`: nothing to order. */
+  code?: ApiErrorBodyCode;
+  /** Present on checkout conflicts (409): the cart lines the conflict applies to (unavailable or out-of-stock products). */
   product_ids?: string[];
 }
 
@@ -30,6 +44,12 @@ export interface CartItem {
   quantity: number;
   /** @minimum 0 */
   line_total_da: number;
+  /**
+     * Units left when the product's stock is tracked (an inventory row exists); null means untracked — always sellable up to the 1..99 line cap. Read-only: prices and stock are never accepted from the client.
+     * @minimum 0
+     * @nullable
+     */
+  stock_available: number | null;
 }
 
 export interface Cart {

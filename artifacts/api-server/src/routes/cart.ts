@@ -9,24 +9,57 @@ import {
   UpdateCartItemParams,
   type Cart,
 } from "@workspace/api-zod";
-import { cartsTable, cartItemsTable, db, productsTable } from "@workspace/db";
+import {
+  cartsTable,
+  cartItemsTable,
+  db,
+  inventoryTable,
+  productsTable,
+} from "@workspace/db";
+import {
+  MAX_LINE_QUANTITY,
+  itemCount,
+  lineTotalDa,
+  stockState,
+  subtotalDa,
+} from "@workspace/pricing";
 
-// Phase 5 — server-side guest cart.
+// Phase 6 — server-side guest cart.
 //
-// The browser holds the cart uuid (localStorage) and presents it with every
-// call: an unguessable bearer capability until Phase 7 auth attaches carts to
-// profiles. Prices are NEVER accepted from the client — every read joins the
-// live catalog, matching what checkout will charge.
+// Guest-cart strategy: the browser holds the cart uuid (localStorage) and
+// presents it with every call — an unguessable bearer capability, no account
+// involved (the shop has no customer sign-in by design, so there is no
+// cart-to-profile migration to plan; the uuid IS the cart's identity).
+//
+// Trust boundary: prices and stock are NEVER accepted from the client. Every
+// read joins the live catalog + inventory, and every mutation re-validates
+// quantity against tracked stock inside a transaction (inventory row locked
+// FOR UPDATE so concurrent adds to one product serialize).
+//
+// Stock semantics (see @workspace/pricing): a product with no inventory row
+// is untracked — always sellable up to the 1..99 line cap. A row is a hard
+// cap: quantity 0 is sold out. Responses expose `stock_available` per line
+// (null = untracked) so the storefront can warn before checkout 409s.
 //
 // Visibility rule: readable cart lines are those whose product is active.
 // A product that leaves the catalog silently drops out of the readable view;
-// checkout detects the leftover rows and answers 409 with the product ids so
-// the client can clean up (see orders.ts).
-
-const MAX_LINE_QUANTITY = 99; // mirrors the cart_items CHECK (1..99)
+// checkout detects the leftover rows and answers 409 with code `unavailable`
+// and the product ids so the client can clean up (see orders.ts).
 
 function fail(res: Response, status: number, message: string): Response {
   return res.status(status).json({ message });
+}
+
+/** 409 conflict body — `code` tells the client how to recover. */
+function conflict(
+  res: Response,
+  code: "unavailable" | "out_of_stock" | "empty_cart",
+  message: string,
+  productIds?: string[],
+): Response {
+  return res
+    .status(409)
+    .json({ message, code, ...(productIds ? { product_ids: productIds } : {}) });
 }
 
 /** True when the cart row exists (regardless of its lines). */
@@ -39,7 +72,11 @@ async function cartExists(cartId: string): Promise<boolean> {
   return Boolean(row);
 }
 
-/** Read a cart: active product lines with live prices, computed totals. */
+/**
+ * Read a cart: active product lines with live prices, per-line stock, and
+ * totals computed by @workspace/pricing — the same module checkout uses, so
+ * the bag and the order can never disagree.
+ */
 async function loadCart(cartId: string): Promise<Cart> {
   const lines = await db
     .select({
@@ -47,9 +84,11 @@ async function loadCart(cartId: string): Promise<Cart> {
       name: productsTable.name,
       unitPriceDa: productsTable.priceDa,
       quantity: cartItemsTable.quantity,
+      stockAvailable: inventoryTable.quantity,
     })
     .from(cartItemsTable)
     .innerJoin(productsTable, eq(cartItemsTable.productId, productsTable.id))
+    .leftJoin(inventoryTable, eq(cartItemsTable.productId, inventoryTable.productId))
     .where(
       and(
         eq(cartItemsTable.cartId, cartId),
@@ -57,21 +96,42 @@ async function loadCart(cartId: string): Promise<Cart> {
       ),
     );
 
+  const priced = lines.map((line) => ({
+    unitPriceDa: line.unitPriceDa,
+    quantity: line.quantity,
+  }));
+
   return {
     id: cartId,
-    items: lines.map((line) => ({
+    items: lines.map((line, index) => ({
       product_id: line.productId,
       name: line.name,
       unit_price_da: line.unitPriceDa,
       quantity: line.quantity,
-      line_total_da: line.unitPriceDa * line.quantity,
+      line_total_da: lineTotalDa(priced[index]),
+      // null (no inventory row) = untracked stock.
+      stock_available: line.stockAvailable,
     })),
-    item_count: lines.reduce((count, line) => count + line.quantity, 0),
-    subtotal_da: lines.reduce(
-      (sum, line) => sum + line.unitPriceDa * line.quantity,
-      0,
-    ),
+    item_count: itemCount(priced),
+    subtotal_da: subtotalDa(priced),
   };
+}
+
+/**
+ * Lock a product's inventory row (when tracked) and report its stock.
+ * The FOR UPDATE lock is held until the surrounding transaction ends, so
+ * concurrent mutations for the same product queue up instead of racing.
+ */
+async function lockStock(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  productId: string,
+) {
+  const [row] = await tx
+    .select({ quantity: inventoryTable.quantity })
+    .from(inventoryTable)
+    .where(eq(inventoryTable.productId, productId))
+    .for("update");
+  return stockState(row ?? null);
 }
 
 const router: IRouter = Router();
@@ -85,7 +145,7 @@ router.post("/cart", async (_req, res) => {
   return res.status(201).json(await loadCart(row.id));
 });
 
-// GET /cart/:cartId — the cart with live-price lines and subtotal.
+// GET /cart/:cartId — the cart with live-price lines, stock and subtotal.
 router.get("/cart/:cartId", async (req, res) => {
   const params = GetCartParams.safeParse(req.params);
   if (!params.success) return fail(res, 400, "Invalid cart id");
@@ -119,17 +179,47 @@ router.post("/cart/:cartId/items", async (req, res) => {
     .limit(1);
   if (!product) return fail(res, 404, "Product not found");
 
+  // Tracked products serialize on the inventory row lock inside the
+  // transaction; untracked ones rely on the 1..99 SQL CHECK, so a concurrent
+  // merge can still trip it (23514) — map that back to the same 400.
+  let outcome: { error: "cap" | "stock" | null; available?: number };
   try {
-    // Atomic merge-on-add: the DB enforces the 1..99 CHECK under concurrency.
-    await db
-      .insert(cartItemsTable)
-      .values({ cartId, productId, quantity })
-      .onConflictDoUpdate({
-        target: [cartItemsTable.cartId, cartItemsTable.productId],
-        set: {
-          quantity: sql`${cartItemsTable.quantity} + ${quantity}`,
-        },
-      });
+    outcome = await db.transaction(async (tx) => {
+      const stock = await lockStock(tx, productId);
+
+      const [existing] = await tx
+        .select({ quantity: cartItemsTable.quantity })
+        .from(cartItemsTable)
+        .where(
+          and(
+            eq(cartItemsTable.cartId, cartId),
+            eq(cartItemsTable.productId, productId),
+          ),
+        )
+        .limit(1);
+
+      // Merge-on-add: the DESIRED line quantity is what gets validated, so
+      // adding 2 to a line that already holds 40 (or to a product with 5 in
+      // stock) is rejected before the write, not after.
+      const desired = (existing?.quantity ?? 0) + quantity;
+      if (desired > MAX_LINE_QUANTITY) return { error: "cap" as const };
+      if (stock.tracked && desired > stock.available)
+        return {
+          error: "stock" as const,
+          available: stock.available,
+        };
+
+      await tx
+        .insert(cartItemsTable)
+        .values({ cartId, productId, quantity })
+        .onConflictDoUpdate({
+          target: [cartItemsTable.cartId, cartItemsTable.productId],
+          set: {
+            quantity: sql`${cartItemsTable.quantity} + ${quantity}`,
+          },
+        });
+      return { error: null } as const;
+    });
   } catch (error) {
     if (
       error instanceof Error &&
@@ -144,6 +234,22 @@ router.post("/cart/:cartId/items", async (req, res) => {
     }
     throw error;
   }
+
+  if (outcome.error === "cap")
+    return fail(
+      res,
+      400,
+      `A line cannot hold more than ${MAX_LINE_QUANTITY} units`,
+    );
+  if (outcome.error === "stock")
+    return conflict(
+      res,
+      "out_of_stock",
+      outcome.available === 0
+        ? "This piece is out of stock"
+        : `Only ${outcome.available} left in stock`,
+      [productId],
+    );
 
   return res.json(await loadCart(cartId));
 });
@@ -173,16 +279,34 @@ router.patch("/cart/:cartId/items/:productId", async (req, res) => {
     if (removed.rowCount === 0)
       return fail(res, 404, "Product is not in this cart");
   } else {
-    const updated = await db
-      .update(cartItemsTable)
-      .set({ quantity })
-      .where(
-        and(
-          eq(cartItemsTable.cartId, cartId),
-          eq(cartItemsTable.productId, productId),
-        ),
+    const outcome = await db.transaction(async (tx) => {
+      const stock = await lockStock(tx, productId);
+      if (stock.tracked && quantity > stock.available)
+        return { error: "stock" as const, available: stock.available };
+
+      const updated = await tx
+        .update(cartItemsTable)
+        .set({ quantity })
+        .where(
+          and(
+            eq(cartItemsTable.cartId, cartId),
+            eq(cartItemsTable.productId, productId),
+          ),
+        );
+      if (updated.rowCount === 0) return { error: "missing" as const };
+      return { error: null } as const;
+    });
+
+    if (outcome.error === "stock")
+      return conflict(
+        res,
+        "out_of_stock",
+        outcome.available === 0
+          ? "This piece is out of stock"
+          : `Only ${outcome.available} left in stock`,
+        [productId],
       );
-    if (updated.rowCount === 0)
+    if (outcome.error === "missing")
       return fail(res, 404, "Product is not in this cart");
   }
 

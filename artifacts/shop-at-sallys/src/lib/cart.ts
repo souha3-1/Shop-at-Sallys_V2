@@ -1,11 +1,15 @@
-// Phase 5 — server-side guest cart.
+// Phase 6 — server-side guest cart (storage strategy).
 //
 // The cart lives in the api-server (artifacts/api-server/src/routes/cart.ts).
 // The browser keeps the cart uuid here (localStorage) and presents it with
-// every cart call: an unguessable bearer capability until Phase 7 auth
-// attaches carts to profiles. All reads/writes go through the generated
-// API client (@workspace/api-client-react), same-origin under '/api/...' —
-// the Vite dev proxy forwards to the api-server in development.
+// every cart call: an unguessable bearer capability. The shop has NO customer
+// accounts by decision, so there is no sign-in and no cart-to-profile
+// migration to build — the uuid is the cart's full identity, and the cart
+// survives refreshes/tabs for as long as the browser keeps the key (falling
+// back to per-tab state when storage is unavailable). All reads/writes go
+// through the generated API client (@workspace/api-client-react), same-origin
+// under '/api/...' — the Vite dev proxy forwards to the api-server in
+// development.
 
 import { createCart } from '@workspace/api-client-react';
 

@@ -27,6 +27,8 @@ export const createCartResponseItemsItemQuantityMax = 99;
 
 export const createCartResponseItemsItemLineTotalDaMin = 0;
 
+export const createCartResponseItemsItemStockAvailableMin = 0;
+
 export const createCartResponseItemCountMin = 0;
 
 export const createCartResponseSubtotalDaMin = 0;
@@ -40,7 +42,8 @@ export const CreateCartResponse = zod.object({
   "name": zod.string(),
   "unit_price_da": zod.number().int().min(createCartResponseItemsItemUnitPriceDaMin),
   "quantity": zod.number().int().min(1).max(createCartResponseItemsItemQuantityMax),
-  "line_total_da": zod.number().int().min(createCartResponseItemsItemLineTotalDaMin)
+  "line_total_da": zod.number().int().min(createCartResponseItemsItemLineTotalDaMin),
+  "stock_available": zod.number().int().min(createCartResponseItemsItemStockAvailableMin).nullable().describe('Units left when the product\'s stock is tracked (an inventory row exists); null means untracked — always sellable up to the 1..99 line cap. Read-only: prices and stock are never accepted from the client.\n')
 }).describe('A cart line with the live catalog price at read time')),
   "item_count": zod.number().int().min(createCartResponseItemCountMin).describe('Total units across all lines'),
   "subtotal_da": zod.number().int().min(createCartResponseSubtotalDaMin)
@@ -61,6 +64,8 @@ export const getCartResponseItemsItemQuantityMax = 99;
 
 export const getCartResponseItemsItemLineTotalDaMin = 0;
 
+export const getCartResponseItemsItemStockAvailableMin = 0;
+
 export const getCartResponseItemCountMin = 0;
 
 export const getCartResponseSubtotalDaMin = 0;
@@ -74,7 +79,8 @@ export const GetCartResponse = zod.object({
   "name": zod.string(),
   "unit_price_da": zod.number().int().min(getCartResponseItemsItemUnitPriceDaMin),
   "quantity": zod.number().int().min(1).max(getCartResponseItemsItemQuantityMax),
-  "line_total_da": zod.number().int().min(getCartResponseItemsItemLineTotalDaMin)
+  "line_total_da": zod.number().int().min(getCartResponseItemsItemLineTotalDaMin),
+  "stock_available": zod.number().int().min(getCartResponseItemsItemStockAvailableMin).nullable().describe('Units left when the product\'s stock is tracked (an inventory row exists); null means untracked — always sellable up to the 1..99 line cap. Read-only: prices and stock are never accepted from the client.\n')
 }).describe('A cart line with the live catalog price at read time')),
   "item_count": zod.number().int().min(getCartResponseItemCountMin).describe('Total units across all lines'),
   "subtotal_da": zod.number().int().min(getCartResponseSubtotalDaMin)
@@ -106,6 +112,8 @@ export const addCartItemResponseItemsItemQuantityMax = 99;
 
 export const addCartItemResponseItemsItemLineTotalDaMin = 0;
 
+export const addCartItemResponseItemsItemStockAvailableMin = 0;
+
 export const addCartItemResponseItemCountMin = 0;
 
 export const addCartItemResponseSubtotalDaMin = 0;
@@ -119,7 +127,8 @@ export const AddCartItemResponse = zod.object({
   "name": zod.string(),
   "unit_price_da": zod.number().int().min(addCartItemResponseItemsItemUnitPriceDaMin),
   "quantity": zod.number().int().min(1).max(addCartItemResponseItemsItemQuantityMax),
-  "line_total_da": zod.number().int().min(addCartItemResponseItemsItemLineTotalDaMin)
+  "line_total_da": zod.number().int().min(addCartItemResponseItemsItemLineTotalDaMin),
+  "stock_available": zod.number().int().min(addCartItemResponseItemsItemStockAvailableMin).nullable().describe('Units left when the product\'s stock is tracked (an inventory row exists); null means untracked — always sellable up to the 1..99 line cap. Read-only: prices and stock are never accepted from the client.\n')
 }).describe('A cart line with the live catalog price at read time')),
   "item_count": zod.number().int().min(addCartItemResponseItemCountMin).describe('Total units across all lines'),
   "subtotal_da": zod.number().int().min(addCartItemResponseSubtotalDaMin)
@@ -153,6 +162,8 @@ export const updateCartItemResponseItemsItemQuantityMax = 99;
 
 export const updateCartItemResponseItemsItemLineTotalDaMin = 0;
 
+export const updateCartItemResponseItemsItemStockAvailableMin = 0;
+
 export const updateCartItemResponseItemCountMin = 0;
 
 export const updateCartItemResponseSubtotalDaMin = 0;
@@ -166,7 +177,8 @@ export const UpdateCartItemResponse = zod.object({
   "name": zod.string(),
   "unit_price_da": zod.number().int().min(updateCartItemResponseItemsItemUnitPriceDaMin),
   "quantity": zod.number().int().min(1).max(updateCartItemResponseItemsItemQuantityMax),
-  "line_total_da": zod.number().int().min(updateCartItemResponseItemsItemLineTotalDaMin)
+  "line_total_da": zod.number().int().min(updateCartItemResponseItemsItemLineTotalDaMin),
+  "stock_available": zod.number().int().min(updateCartItemResponseItemsItemStockAvailableMin).nullable().describe('Units left when the product\'s stock is tracked (an inventory row exists); null means untracked — always sellable up to the 1..99 line cap. Read-only: prices and stock are never accepted from the client.\n')
 }).describe('A cart line with the live catalog price at read time')),
   "item_count": zod.number().int().min(updateCartItemResponseItemCountMin).describe('Total units across all lines'),
   "subtotal_da": zod.number().int().min(updateCartItemResponseSubtotalDaMin)
@@ -191,6 +203,8 @@ export const removeCartItemResponseItemsItemQuantityMax = 99;
 
 export const removeCartItemResponseItemsItemLineTotalDaMin = 0;
 
+export const removeCartItemResponseItemsItemStockAvailableMin = 0;
+
 export const removeCartItemResponseItemCountMin = 0;
 
 export const removeCartItemResponseSubtotalDaMin = 0;
@@ -204,7 +218,8 @@ export const RemoveCartItemResponse = zod.object({
   "name": zod.string(),
   "unit_price_da": zod.number().int().min(removeCartItemResponseItemsItemUnitPriceDaMin),
   "quantity": zod.number().int().min(1).max(removeCartItemResponseItemsItemQuantityMax),
-  "line_total_da": zod.number().int().min(removeCartItemResponseItemsItemLineTotalDaMin)
+  "line_total_da": zod.number().int().min(removeCartItemResponseItemsItemLineTotalDaMin),
+  "stock_available": zod.number().int().min(removeCartItemResponseItemsItemStockAvailableMin).nullable().describe('Units left when the product\'s stock is tracked (an inventory row exists); null means untracked — always sellable up to the 1..99 line cap. Read-only: prices and stock are never accepted from the client.\n')
 }).describe('A cart line with the live catalog price at read time')),
   "item_count": zod.number().int().min(removeCartItemResponseItemCountMin).describe('Total units across all lines'),
   "subtotal_da": zod.number().int().min(removeCartItemResponseSubtotalDaMin)
@@ -212,7 +227,7 @@ export const RemoveCartItemResponse = zod.object({
 
 
 /**
- * Validates the contact details, recomputes totals server-side from live catalog prices (the client's numbers are never trusted), snapshots the lines into order_items, allocates an 'SS-XXXX' reference, and empties the cart. Payment on delivery: no payment data is collected.
+ * Validates the contact details, recomputes totals server-side from live catalog prices (the client's numbers are never trusted), checks and decrements tracked stock inside the same transaction, snapshots the lines into order_items, allocates an 'SS-XXXX' reference, and empties the cart. Payment on delivery: no payment data is collected.
  * @summary Place an order from a cart (checkout)
  */
 export const placeOrderBodyContactNameMax = 120;

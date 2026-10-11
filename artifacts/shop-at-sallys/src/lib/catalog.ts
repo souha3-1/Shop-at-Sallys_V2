@@ -37,6 +37,11 @@ type ProductRow = {
   sort_order: number;
 };
 
+type InventoryRow = {
+  product_id: string;
+  quantity: number;
+};
+
 export type Catalog = {
   products: Product[];
   collections: Record<string, Collection>;
@@ -47,7 +52,7 @@ const EMPTY_CATALOG: Catalog = { products: [], collections: {}, categories: [] }
 
 async function fetchCatalog(): Promise<Catalog> {
   // Read-only anon selects; Phase 3 RLS filters drafts/unpublished server-side.
-  const [categoriesRes, collectionsRes, productsRes] = await Promise.all([
+  const [categoriesRes, collectionsRes, productsRes, inventoryRes] = await Promise.all([
     supabase
       .from('categories')
       .select('slug, name, sort_order')
@@ -66,14 +71,21 @@ async function fetchCatalog(): Promise<Catalog> {
       )
       .eq('status', 'active')
       .order('sort_order'),
+    // Stock: only tracked products have an inventory row; a product missing
+    // from this result is untracked (always sellable) — same rule the
+    // api-server enforces at mutation/checkout time.
+    supabase.from('inventory').select('product_id, quantity'),
   ]);
 
-  const error = categoriesRes.error ?? collectionsRes.error ?? productsRes.error;
+  const error =
+    categoriesRes.error ?? collectionsRes.error ?? productsRes.error ?? inventoryRes.error;
   if (error) throw error;
 
   const categoryRows = (categoriesRes.data ?? []) as CategoryRow[];
   const collectionRows = (collectionsRes.data ?? []) as CollectionRow[];
   const productRows = (productsRes.data ?? []) as ProductRow[];
+  const inventoryRows = (inventoryRes.data ?? []) as InventoryRow[];
+  const stockByProduct = new Map(inventoryRows.map((row) => [row.product_id, row.quantity]));
 
   const categoryNames = new Map(categoryRows.map((row) => [row.slug, row.name]));
 
@@ -102,6 +114,7 @@ async function fetchCatalog(): Promise<Catalog> {
     featured: row.is_featured,
     isNew: row.is_new,
     bestSeller: row.is_best_seller,
+    stock: stockByProduct.get(row.id) ?? null,
   }));
 
   return {

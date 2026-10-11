@@ -110,6 +110,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiErrorBody"
+        "409":
+          description: >-
+            Adding this quantity would exceed the product's tracked stock
+            (merge-on-add result checked server-side against inventory).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
   /cart/{cartId}/items/{productId}:
     patch:
       operationId: updateCartItem
@@ -143,6 +151,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiErrorBody"
+        "409":
+          description: Requested quantity exceeds the product's tracked stock
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorBody"
     delete:
       operationId: removeCartItem
       tags: [cart]
@@ -170,7 +184,8 @@ paths:
       summary: Place an order from a cart (checkout)
       description: >
         Validates the contact details, recomputes totals server-side from live
-        catalog prices (the client's numbers are never trusted), snapshots the
+        catalog prices (the client's numbers are never trusted), checks and
+        decrements tracked stock inside the same transaction, snapshots the
         lines into order_items, allocates an 'SS-XXXX' reference, and empties
         the cart. Payment on delivery: no payment data is collected.
       requestBody:
@@ -235,11 +250,22 @@ components:
       properties:
         message:
           type: string
+        code:
+          type: string
+          enum:
+            - unavailable
+            - out_of_stock
+            - empty_cart
+          description: >
+            Present on 409 conflicts. `unavailable`: cart lines whose products
+            left the catalog — the client should drop them and retry.
+            `out_of_stock`: tracked stock is insufficient — keep the lines and
+            let the customer reduce quantities. `empty_cart`: nothing to order.
         product_ids:
           type: array
           description: >
-            Present on checkout conflicts (409): cart lines whose products
-            left the catalog; the client should drop them and retry.
+            Present on checkout conflicts (409): the cart lines the conflict
+            applies to (unavailable or out-of-stock products).
           items:
             type: string
       required:
@@ -262,12 +288,23 @@ components:
         line_total_da:
           type: integer
           minimum: 0
+        stock_available:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          description: >
+            Units left when the product's stock is tracked (an inventory row
+            exists); null means untracked — always sellable up to the 1..99
+            line cap. Read-only: prices and stock are never accepted from the
+            client.
       required:
         - product_id
         - name
         - unit_price_da
         - quantity
         - line_total_da
+        - stock_available
     Cart:
       type: object
       properties:

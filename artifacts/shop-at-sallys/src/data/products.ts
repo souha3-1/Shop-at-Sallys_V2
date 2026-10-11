@@ -18,6 +18,12 @@ export type Product = {
   isNew?: boolean;
   bestSeller?: boolean;
   details: string;
+  /**
+   * Units left when stock is tracked (an inventory row exists); null means
+   * untracked — always sellable. 0 is sold out. Mirrors the server's
+   * `stock_available` (see @workspace/pricing stockState).
+   */
+  stock: number | null;
 };
 
 export type Collection = {
