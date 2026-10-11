@@ -37,7 +37,8 @@ _Replace the heading above with the project's name, and this line with one sente
 - `artifacts/api-server/src/routes/` — cart (guest, stock-validated) and
   checkout (server-authoritative pricing + stock decrement, one transaction).
 - `artifacts/shop-at-sallys/` — storefront (Vite + React, catalog read
-  straight from Supabase via anon; mutations go through the api-server).
+  straight from Supabase via anon; mutations go through the api-server;
+  guest wishlist + order history in localStorage via `src/lib/guest.ts`).
 
 ## Architecture decisions
 
@@ -63,6 +64,13 @@ _Replace the heading above with the project's name, and this line with one sente
   product_ids and retries; `code: 'out_of_stock'` → client keeps lines and
   asks the customer to reduce quantities; `code: 'empty_cart'` → nothing to
   do.
+- **No customer identity anywhere (Phase 7, user decision):** Supabase Auth
+  is deliberately NOT introduced — no sign-up/in/out, no sessions, no
+  profile rows. Wishlist and order history live in localStorage
+  (`src/lib/guest.ts`); the account page renders only what this browser
+  knows (guest state, real placed orders — never fabricated data).
+  Server-side privacy rests on Phase 3 RLS plus the unguessable cart uuid;
+  the `profiles` table exists in the schema but is intentionally unused.
 
 ## Product
 
@@ -72,6 +80,8 @@ _Describe the high-level user-facing capabilities of this app once they exist._
 
 - **No customer accounts.** Do not build sign-in, registration, or
   profile-gated flows for shoppers; carts and checkout stay guest-only.
+- **Wishlist is localStorage-only.** No server table, no sync across
+  devices — saved pieces and order history stay on the device.
 - Payment on delivery (no card/payment data anywhere in the flow).
 
 ## Gotchas

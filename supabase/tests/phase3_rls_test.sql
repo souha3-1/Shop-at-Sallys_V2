@@ -19,6 +19,13 @@ begin;
 -- The Phase 4 seed owns the live catalog rows; this suite builds its own
 -- fixtures inside this transaction and ROLLS BACK at the end, which restores
 -- the seeded rows untouched. (Counts asserted below assume only fixtures.)
+-- Real guest checkouts (Phase 6/7) leave committed order rows that would
+-- fail the products FK and the exact-count assertions below, so remove them
+-- for the duration of the run too — the ROLLBACK at the end restores them
+-- exactly as they were.
+delete from public.order_items;
+delete from public.orders;
+delete from public.cart_items;
 delete from public.inventory;
 delete from public.products;
 delete from public.collections;
