@@ -20,6 +20,7 @@ import {
   type PlaceOrderRequest,
 } from '@workspace/api-client-react';
 import { createServerCart, readStoredCartId } from '@/lib/cart';
+import { readStoredOrders, readStoredWishlist, rememberOrder, storeWishlist } from '@/lib/guest';
 import { MAX_LINE_QUANTITY, deliveryFeeDa } from '@workspace/pricing';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -61,7 +62,7 @@ function Header({ cart, wishlist, onCart }: { cart: CartLine[]; wishlist: string
           <div className="header-actions">
             <Link className="icon-btn" href="/shop" aria-label="Search the shop" data-testid="link-search"><Search size={19} /></Link>
             <Link className="icon-btn" href="/wishlist" aria-label={`Wishlist with ${wishlist.length} items`} data-testid="link-wishlist"><Heart size={19} fill={wishlist.length ? 'currentColor' : 'none'} /></Link>
-            <Link className="icon-btn" href="/account" aria-label="Your account" data-testid="link-account"><UserRound size={19} /></Link>
+            <Link className="icon-btn" href="/account" aria-label="Your orders" data-testid="link-account"><UserRound size={19} /></Link>
             <button className="icon-btn" onClick={onCart} aria-label={`Open bag with ${cart.length} items`} data-testid="button-open-cart" style={{ position:'relative' }}>
               <ShoppingBag size={20} />{cart.length > 0 && <span className="cart-count">{cart.reduce((sum, line) => sum + line.quantity, 0)}</span>}
             </button>
@@ -81,7 +82,7 @@ function Footer() {
           <p style={{ color:'var(--linen)', maxWidth:260, lineHeight:1.7, fontSize:'.85rem', marginTop:20 }}>Art belongs in everyday life. A small creative shop for objects with a point of view.</p>
         </div>
         <div><div className="footer-title">Explore</div><div className="footer-links"><Link href="/shop">All objects</Link><Link href="/collection/sunflowers">Sunflowers</Link><Link href="/collection/irises">Irises</Link><Link href="/collection/wheatfield">Wheatfield</Link></div></div>
-        <div><div className="footer-title">Help</div><div className="footer-links"><Link href="/contact">Delivery & contact</Link><Link href="/account">Your account</Link><Link href="/wishlist">Saved pieces</Link><span>Payment on delivery</span></div></div>
+        <div><div className="footer-title">Help</div><div className="footer-links"><Link href="/contact">Delivery & contact</Link><Link href="/account">Your orders</Link><Link href="/wishlist">Saved pieces</Link><span>Payment on delivery</span></div></div>
         <div><div className="footer-title">Say hello</div><div className="footer-links"><a href="mailto:hello@shopatsallys.dz">hello@shopatsallys.dz</a><a href="https://instagram.com/shopatsallys" target="_blank" rel="noreferrer">@shopatsallys</a><span>Algiers, Algeria</span></div></div>
       </div>
       <div className="container-wide footer-bottom"><span>© 2024 Shop at Sally's · Made for everyday looking</span><span>7–10 day delivery across Algeria</span></div>
@@ -210,11 +211,15 @@ function CheckoutPage({ cart, onSubmitOrder }: { cart: CartLine[]; onSubmitOrder
 function WishlistPage({ wishlist, onWish, onAdd }: { wishlist: string[]; onWish: (product: Product) => void; onAdd: (product: Product) => void }) {
   const { products } = useCatalog();
   const saved = products.filter((product) => wishlist.includes(product.id));
-  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Kept for later</span><h1 className="display">Your saved shelf.</h1><p>A place for the objects that made you pause.</p></div></section><section className="section"><div className="container-wide">{saved.length ? <div className="product-grid">{saved.map((product) => <ProductCard key={product.id} product={product} wished onWish={() => onWish(product)} onAdd={() => onAdd(product)} />)}</div> : <EmptyState title="Nothing saved yet." text="When something catches your eye, tap the heart and it will stay here." action="Find a piece" />}</div></section></main>;
+  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Kept for later</span><h1 className="display">Your saved shelf.</h1><p>A place for the objects that made you pause. Kept in this browser — no account needed.</p></div></section><section className="section"><div className="container-wide">{saved.length ? <div className="product-grid">{saved.map((product) => <ProductCard key={product.id} product={product} wished onWish={() => onWish(product)} onAdd={() => onAdd(product)} />)}</div> : <EmptyState title="Nothing saved yet." text="When something catches your eye, tap the heart and it will stay here." action="Find a piece" />}</div></section></main>;
 }
 
-function AccountPage() {
-  return <main><section className="section"><div className="container-wide"><div className="account-head"><div><span className="eyebrow">Your corner of the shop</span><h1 className="display">Hello, Amina.</h1></div><Link className="btn btn-quiet" href="/shop">Continue browsing <ArrowRight size={15} /></Link></div><div className="account-grid"><div className="profile-card"><div className="profile-mark">A</div><h2>Amina Belkacem</h2><p className="body-copy" style={{ fontSize:'.88rem' }}>amina.belkacem@example.com</p><div className="info-block" style={{ marginTop:24 }}><h3>Delivery note</h3><p>Algiers, Algeria<br />Payment on delivery</p></div><button className="btn btn-quiet" style={{ marginTop:22 }} onClick={() => alert('Profile editing is ready for the next chapter.')} data-testid="button-edit-profile">Edit profile</button></div><div className="orders-card"><h2>Order history</h2><div className="order-row"><div><strong>SS-0428</strong><div style={{ color:'var(--ink)', marginTop:5 }}>2 objects · 18 April 2024</div></div><div style={{ textAlign:'right' }}><span className="status">Delivered</span><div className="mono" style={{ marginTop:8, fontSize:'.73rem' }}>4,250 DA</div></div></div><div className="order-row"><div><strong>SS-0316</strong><div style={{ color:'var(--ink)', marginTop:5 }}>1 object · 02 March 2024</div></div><div style={{ textAlign:'right' }}><span className="status">Delivered</span><div className="mono" style={{ marginTop:8, fontSize:'.73rem' }}>2,400 DA</div></div></div><div className="order-row"><div><strong>SS-0189</strong><div style={{ color:'var(--ink)', marginTop:5 }}>3 objects · 14 January 2024</div></div><div style={{ textAlign:'right' }}><span className="status">Delivered</span><div className="mono" style={{ marginTop:8, fontSize:'.73rem' }}>5,100 DA</div></div></div></div></div></div></section></main>;
+function AccountPage({ wishlist }: { wishlist: string[] }) {
+  // Phase 7: no accounts by decision — this page shows only what this
+  // browser actually knows: the saved shelf and orders placed from here.
+  const orders = readStoredOrders();
+  const firstName = orders[0]?.contactName.trim().split(/\s+/)[0];
+  return <main><section className="section"><div className="container-wide"><div className="account-head"><div><span className="eyebrow">Your corner of the shop</span><h1 className="display">{firstName ? `Hello, ${firstName}.` : 'Your orders.'}</h1></div><Link className="btn btn-quiet" href="/shop">Continue browsing <ArrowRight size={15} /></Link></div><div className="account-grid"><div className="profile-card"><div className="profile-mark">S</div><h2>Shopping as a guest</h2><p className="body-copy" style={{ fontSize:'.88rem' }}>No account, no sign-in. Your saved pieces and orders stay in this browser.</p><div className="info-block" style={{ marginTop:24 }}><h3>Saved pieces</h3><p data-testid="account-wishlist-count">{wishlist.length} object{wishlist.length === 1 ? '' : 's'} kept for later.</p><Link href="/wishlist" style={{ fontSize:'.85rem', color:'var(--cobalt)' }}>Open your saved shelf</Link></div><div className="info-block" style={{ marginTop:16 }}><h3>Delivery note</h3><p>Algiers, Algeria<br />Payment on delivery</p></div></div><div className="orders-card"><h2>Orders from this device</h2>{orders.length ? orders.map((order) => <div className="order-row" key={order.reference} data-testid="account-order-row"><div><strong>{order.reference}</strong><div style={{ color:'var(--ink)', marginTop:5 }}>{order.itemCount} object{order.itemCount === 1 ? '' : 's'} · {new Date(order.placedAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</div></div><div style={{ textAlign:'right' }}><span className="status">Placed</span><div className="mono" style={{ marginTop:8, fontSize:'.73rem' }}>{money(order.totalDa)}</div></div></div>) : <div className="empty-state" style={{ border:0, padding:'30px 10px' }} data-testid="account-orders-empty"><p>No orders from this browser yet. Place one and it will wait for you here.</p><Link className="btn btn-quiet" href="/shop">Browse the shop</Link></div>}</div></div></div></section></main>;
 }
 
 function CartDrawer({ cart, open, onClose, onChange, onRemove }: { cart: CartLine[]; open: boolean; onClose: () => void; onChange: (id: string, quantity: number) => void; onRemove: (id: string) => void }) {
@@ -229,7 +234,7 @@ function AppShell() {
   // cart uuid (localStorage). Components still receive plain CartLine[] so
   // the UI is unchanged — only where the data comes from is different.
   const [cartId, setCartId] = useState<string | null>(() => readStoredCartId());
-  const [wishlist, setWishlist] = useState<string[]>([]);
+  const [wishlist, setWishlist] = useState<string[]>(() => readStoredWishlist());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [location] = useLocation();
@@ -291,8 +296,11 @@ function AppShell() {
     }
   };
   const toggleWishlist = (product: Product) => {
-    setWishlist((current) => current.includes(product.id) ? current.filter((id) => id !== product.id) : [...current, product.id]);
-    addToast(wishlist.includes(product.id) ? `${product.name} removed from saved pieces.` : `${product.name} saved for later.`);
+    const saved = wishlist.includes(product.id);
+    const next = saved ? wishlist.filter((id) => id !== product.id) : [...wishlist, product.id];
+    setWishlist(next);
+    storeWishlist(next); // Phase 7: the wishlist lives on this device (localStorage).
+    addToast(saved ? `${product.name} removed from saved pieces.` : `${product.name} saved for later.`);
   };
   const updateCart = async (id: string, quantity: number) => {
     if (!cartId || cartMissing) return;
@@ -320,6 +328,17 @@ function AppShell() {
     try {
       const order = await placeOrder({ ...details, cart_id: cartId });
       queryClient.setQueryData(getGetCartQueryKey(cartId), { id: cartId, items: [], item_count: 0, subtotal_da: 0 } satisfies ServerCart);
+      // Phase 7: remember the order on this device so the account page shows
+      // real history without any server-side identity.
+      rememberOrder({
+        reference: order.reference,
+        placedAt: new Date().toISOString(),
+        contactName: details.contact_name,
+        itemCount: order.item_count,
+        subtotalDa: order.subtotal_da,
+        deliveryFeeDa: order.delivery_fee_da,
+        totalDa: order.total_da,
+      });
       return order;
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -338,7 +357,7 @@ function AppShell() {
       throw error;
     }
   };
-  return <div className="app-shell paper-noise"><Header cart={cart} wishlist={wishlist} onCart={() => setDrawerOpen(true)} /><div className="entrance" key={location}>{/* Routes pass elements (not inline `component` arrows) so page components keep a stable type across AppShell re-renders — React Query cart updates would otherwise remount the page and wipe local state (e.g. the placed-order confirmation). */}<Switch><Route path="/"><HomePage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/shop"><ShopPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/product/:id"><ProductPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/collection/:slug"><CollectionPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/about"><AboutPage /></Route><Route path="/contact"><ContactPage /></Route><Route path="/wishlist"><WishlistPage wishlist={wishlist} onWish={toggleWishlist} onAdd={addToCart} /></Route><Route path="/account"><AccountPage /></Route><Route path="/cart"><CartPage cart={cart} onChange={updateCart} onRemove={removeCart} /></Route><Route path="/checkout"><CheckoutPage cart={cart} onSubmitOrder={submitOrder} /></Route><Route><NotFound /></Route></Switch></div><Footer /><CartDrawer cart={cart} open={drawerOpen} onClose={() => setDrawerOpen(false)} onChange={updateCart} onRemove={removeCart} /><ToastStack toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} /></div>;
+  return <div className="app-shell paper-noise"><Header cart={cart} wishlist={wishlist} onCart={() => setDrawerOpen(true)} /><div className="entrance" key={location}>{/* Routes pass elements (not inline `component` arrows) so page components keep a stable type across AppShell re-renders — React Query cart updates would otherwise remount the page and wipe local state (e.g. the placed-order confirmation). */}<Switch><Route path="/"><HomePage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/shop"><ShopPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/product/:id"><ProductPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/collection/:slug"><CollectionPage onAdd={addToCart} wishlist={wishlist} onWish={toggleWishlist} /></Route><Route path="/about"><AboutPage /></Route><Route path="/contact"><ContactPage /></Route><Route path="/wishlist"><WishlistPage wishlist={wishlist} onWish={toggleWishlist} onAdd={addToCart} /></Route><Route path="/account"><AccountPage wishlist={wishlist} /></Route><Route path="/cart"><CartPage cart={cart} onChange={updateCart} onRemove={removeCart} /></Route><Route path="/checkout"><CheckoutPage cart={cart} onSubmitOrder={submitOrder} /></Route><Route><NotFound /></Route></Switch></div><Footer /><CartDrawer cart={cart} open={drawerOpen} onClose={() => setDrawerOpen(false)} onChange={updateCart} onRemove={removeCart} /><ToastStack toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} /></div>;
 }
 
 function App() {
