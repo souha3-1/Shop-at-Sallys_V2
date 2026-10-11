@@ -21,4 +21,10 @@ export interface CartItem {
   quantity: number;
   /** @minimum 0 */
   line_total_da: number;
+  /**
+     * Units left when the product's stock is tracked (an inventory row exists); null means untracked — always sellable up to the 1..99 line cap. Read-only: prices and stock are never accepted from the client.
+     * @minimum 0
+     * @nullable
+     */
+  stock_available: number | null;
 }

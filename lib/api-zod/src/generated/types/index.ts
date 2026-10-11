@@ -8,6 +8,7 @@
 
 export * from './addCartItemRequest';
 export * from './apiErrorBody';
+export * from './apiErrorBodyCode';
 export * from './cart';
 export * from './cartItem';
 export * from './healthStatus';

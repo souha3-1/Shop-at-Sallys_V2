@@ -1,25 +1,38 @@
 import { Router, type IRouter } from "express";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { PlaceOrderBody } from "@workspace/api-zod";
 import {
   cartItemsTable,
   cartsTable,
   db,
+  inventoryTable,
   orderItemsTable,
   ordersTable,
   productsTable,
 } from "@workspace/db";
+import { deliveryFeeDa, itemCount, subtotalDa, totalDa } from "@workspace/pricing";
 
-// Phase 5 — checkout: cart → order, server-authoritative.
+// Phase 6 — checkout: cart → order, server-authoritative.
 //
-// Totals are recomputed here from live catalog prices (client numbers are
-// never trusted), lines are snapshotted into order_items (Phase 2), the
-// 'SS-XXXX' reference comes from public.order_reference_seq (race-free,
-// unique by construction), and the cart is emptied — all in one transaction.
+// Trust boundary: the client sends only contact details + cart id. Prices and
+// stock come from the database inside one transaction:
+//   1. lock the cart's tracked inventory rows (FOR UPDATE) in product_id
+//      order so concurrent checkouts serialize instead of overselling,
+//   2. validate every line (product still active, quantity within stock),
+//   3. recompute totals with @workspace/pricing — the same module the cart
+//      view uses, so the bag total and the order total can never disagree,
+//   4. snapshot lines into order_items, allocate the 'SS-XXXX' reference from
+//      public.order_reference_seq, decrement tracked stock, empty the cart.
+// A failure at any step aborts the whole transaction (nothing half-writes).
 //
-// Payment on delivery: no payment data exists in this flow, so the delivery
-// fee is never part of the charged total (free over 5,000 DA per shop
-// policy is settled with the customer by phone).
+// Stock semantics: a product with no inventory row is untracked (always
+// sellable); a row is a hard cap and is decremented here so stock can never
+// go negative — the inventory CHECK (quantity >= 0) is the last line of
+// defence.
+//
+// Payment on delivery: no payment data is collected, so the delivery fee
+// follows shop policy (free at/above 5,000 DA, otherwise the flat fee) and
+// total = subtotal + fee, computed once by totalDa().
 
 const router: IRouter = Router();
 
@@ -65,12 +78,18 @@ router.post("/orders", async (req, res) => {
         conflict: {
           message:
             "Some items in your bag are no longer available and have been flagged for removal",
+          code: "unavailable" as const,
           product_ids: unavailable,
         },
       } as const;
     }
     if (lines.length === 0) {
-      return { conflict: { message: "Your bag is empty" } } as const;
+      return {
+        conflict: {
+          message: "Your bag is empty",
+          code: "empty_cart" as const,
+        },
+      } as const;
     }
 
     // The checks above guarantee every line has an active product; narrow the
@@ -86,16 +105,46 @@ router.post("/orders", async (req, res) => {
         line.unitPriceDa !== null,
     );
 
-    const itemCount = buyable.reduce(
-      (count, line) => count + line.quantity,
-      0,
-    );
-    const subtotal = buyable.reduce(
-      (sum, line) => sum + line.unitPriceDa * line.quantity,
-      0,
-    );
-    const deliveryFee = 0;
-    const total = subtotal + deliveryFee;
+    // Lock tracked inventory rows for this order's products — always in
+    // product_id order so two overlapping checkouts acquire the same locks
+    // in the same sequence (no deadlock). Rows absent = untracked product.
+    const productIds = buyable.map((line) => line.productId).sort();
+    const stockRows = await tx
+      .select({
+        productId: inventoryTable.productId,
+        quantity: inventoryTable.quantity,
+      })
+      .from(inventoryTable)
+      .where(inArray(inventoryTable.productId, productIds))
+      .orderBy(inventoryTable.productId)
+      .for("update");
+    const stock = new Map(stockRows.map((row) => [row.productId, row.quantity]));
+
+    const outOfStock = buyable.filter((line) => {
+      const available = stock.get(line.productId);
+      return available !== undefined && line.quantity > available;
+    });
+    if (outOfStock.length > 0) {
+      return {
+        conflict: {
+          message:
+            "Some items in your bag exceed the quantity left in stock — reduce the quantity and try again",
+          code: "out_of_stock" as const,
+          product_ids: outOfStock.map((line) => line.productId),
+        },
+      } as const;
+    }
+
+    // One source of truth for money maths (see @workspace/pricing): the
+    // client's numbers never enter this computation.
+    const priced = buyable.map((line) => ({
+      unitPriceDa: line.unitPriceDa,
+      quantity: line.quantity,
+    }));
+    const subtotal = subtotalDa(priced);
+    const deliveryFee = deliveryFeeDa(subtotal);
+    const total = totalDa(priced);
+    const units = itemCount(priced);
 
     const seq = await tx.execute(
       sql`select nextval('public.order_reference_seq') as nextval`,
@@ -128,6 +177,17 @@ router.post("/orders", async (req, res) => {
       })),
     );
 
+    // Decrement tracked stock (untracked products have no row to touch).
+    // Validation above + the row locks guarantee quantity never goes negative.
+    const decrements = buyable
+      .filter((line) => stock.has(line.productId))
+      .map(
+        (line) =>
+          sql`update public.inventory set quantity = quantity - ${line.quantity}
+              where product_id = ${line.productId}`,
+      );
+    for (const statement of decrements) await tx.execute(statement);
+
     await tx
       .delete(cartItemsTable)
       .where(eq(cartItemsTable.cartId, body.cart_id));
@@ -135,12 +195,12 @@ router.post("/orders", async (req, res) => {
     return {
       order: {
         reference,
-        item_count: itemCount,
+        item_count: units,
         subtotal_da: subtotal,
         delivery_fee_da: deliveryFee,
         total_da: total,
       },
-    };
+    } as const;
   });
 
   if ("conflict" in result) {

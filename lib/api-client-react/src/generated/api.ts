@@ -553,7 +553,7 @@ export const getPlaceOrderUrl = () => {
 }
 
 /**
- * Validates the contact details, recomputes totals server-side from live catalog prices (the client's numbers are never trusted), snapshots the lines into order_items, allocates an 'SS-XXXX' reference, and empties the cart. Payment on delivery: no payment data is collected.
+ * Validates the contact details, recomputes totals server-side from live catalog prices (the client's numbers are never trusted), checks and decrements tracked stock inside the same transaction, snapshots the lines into order_items, allocates an 'SS-XXXX' reference, and empties the cart. Payment on delivery: no payment data is collected.
  * @summary Place an order from a cart (checkout)
  */
 export const placeOrder = async (placeOrderRequest: PlaceOrderRequest, options?: Parameters<typeof customFetch>[1]): Promise<Order> => {

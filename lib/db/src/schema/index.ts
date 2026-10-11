@@ -9,6 +9,7 @@
 // drizzle-kit push against the Supabase-managed schema.
 
 export * from "./products";
+export * from "./inventory";
 export * from "./carts";
 export * from "./cart-items";
 export * from "./orders";

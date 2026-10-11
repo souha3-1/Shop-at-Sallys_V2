@@ -2,6 +2,9 @@
 .branches
 .temp
 
+# local pre-reset backups
+.backup
+
 # dotenvx
 .env.keys
 .env.local

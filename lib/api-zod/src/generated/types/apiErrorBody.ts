@@ -5,9 +5,12 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ApiErrorBodyCode } from './apiErrorBodyCode';
 
 export interface ApiErrorBody {
   message: string;
-  /** Present on checkout conflicts (409): cart lines whose products left the catalog; the client should drop them and retry. */
+  /** Present on 409 conflicts. `unavailable`: cart lines whose products left the catalog — the client should drop them and retry. `out_of_stock`: tracked stock is insufficient — keep the lines and let the customer reduce quantities. `empty_cart`: nothing to order. */
+  code?: ApiErrorBodyCode;
+  /** Present on checkout conflicts (409): the cart lines the conflict applies to (unavailable or out-of-stock products). */
   product_ids?: string[];
 }

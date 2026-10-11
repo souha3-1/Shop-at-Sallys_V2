@@ -20,13 +20,23 @@ import {
   type PlaceOrderRequest,
 } from '@workspace/api-client-react';
 import { createServerCart, readStoredCartId } from '@/lib/cart';
+import { MAX_LINE_QUANTITY, deliveryFeeDa } from '@workspace/pricing';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 
-type CartLine = { productId: string; quantity: number };
+type CartLine = { productId: string; quantity: number; stockAvailable: number | null };
 type Toast = { id: number; message: string };
 const queryClient = new QueryClient();
+
+/** Prefer the server's human message (409 bodies) over the HTTP-level text. */
+function apiMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const data = error.data as { message?: string } | null;
+    if (data?.message) return data.message;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
 
 function Header({ cart, wishlist, onCart }: { cart: CartLine[]; wishlist: string[]; onCart: () => void }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -149,7 +159,9 @@ function ProductPage({ onAdd, wishlist, onWish }: { onAdd: (product: Product, qu
   const product = products.find((item) => item.id === id);
   if (!product) return <main className="section container-wide"><EmptyState title="That object wandered off." text="The piece you were looking for is no longer on this shelf." action="Return to the shop" /></main>;
   const related = products.filter((item) => item.collection === product.collection && item.id !== product.id).slice(0, 4);
-  return <main className="detail-wrap"><div className="container-wide"><div className="breadcrumbs"><Link href="/shop">Shop</Link><ChevronLeft size={13} /><Link href={`/collection/${product.collection}`}>{collections[product.collection]?.name ?? product.collection}</Link><ChevronLeft size={13} /><span>{product.name}</span></div><div className="detail-grid"><ProductArtwork product={product} detail /><div className="detail-copy"><span className="eyebrow">{collections[product.collection]?.name ?? product.collection} · {product.category}</span><h1 className="display">{product.name}</h1><p className="price">{money(product.price)}</p><p className="body-copy">{product.description} {product.details}</p><div className="purchase-row"><QuantityControl quantity={quantity} onChange={setQuantity} testId={`quantity-${product.id}`} /><button className="btn btn-primary" onClick={() => onAdd(product, quantity)} data-testid={`button-add-detail-${product.id}`}><ShoppingBag size={16} /> Add to bag</button><button className="icon-btn" onClick={() => onWish(product)} aria-label="Save this object" data-testid={`button-save-detail-${product.id}`}><Heart fill={wishlist.includes(product.id) ? 'currentColor' : 'none'} /></button></div><div className="detail-note"><Truck size={18} /><span>Delivered across Algeria in 7–10 days. Payment on delivery, always.</span></div><div className="detail-note"><ShieldCheck size={18} /><span>Carefully wrapped in our Algiers studio, ready to gift or keep.</span></div></div></div></div><section className="section soft-section"><div className="container-wide"><div className="section-head"><div><span className="eyebrow">More from this room</span><h2 className="section-title display">Keep looking.</h2></div></div><div className="product-grid">{related.map((item) => <ProductCard key={item.id} product={item} wished={wishlist.includes(item.id)} onWish={() => onWish(item)} onAdd={() => onAdd(item)} />)}</div></div></section></main>;
+  const soldOut = product.stock === 0;
+  const stockMax = Math.min(99, product.stock ?? 99);
+  return <main className="detail-wrap"><div className="container-wide"><div className="breadcrumbs"><Link href="/shop">Shop</Link><ChevronLeft size={13} /><Link href={`/collection/${product.collection}`}>{collections[product.collection]?.name ?? product.collection}</Link><ChevronLeft size={13} /><span>{product.name}</span></div><div className="detail-grid"><ProductArtwork product={product} detail /><div className="detail-copy"><span className="eyebrow">{collections[product.collection]?.name ?? product.collection} · {product.category}</span><h1 className="display">{product.name}</h1><p className="price">{money(product.price)}</p><p className="body-copy">{product.description} {product.details}</p><div className="purchase-row"><QuantityControl quantity={quantity} onChange={setQuantity} testId={`quantity-${product.id}`} max={stockMax} /><button className="btn btn-primary" onClick={() => onAdd(product, quantity)} disabled={soldOut} data-testid={`button-add-detail-${product.id}`}>{soldOut ? 'Sold out' : <><ShoppingBag size={16} /> Add to bag</>}</button><button className="icon-btn" onClick={() => onWish(product)} aria-label="Save this object" data-testid={`button-save-detail-${product.id}`}><Heart fill={wishlist.includes(product.id) ? 'currentColor' : 'none'} /></button></div>{soldOut ? <div className="detail-note" data-testid={`stock-note-${product.id}`}><Package size={18} /><span>Out of stock for now — we restock in small batches.</span></div> : product.stock !== null && product.stock <= 5 && <div className="detail-note" data-testid={`stock-note-${product.id}`}><Package size={18} /><span>Only {product.stock} left in stock.</span></div>}<div className="detail-note"><Truck size={18} /><span>Delivered across Algeria in 7–10 days. Payment on delivery, always.</span></div><div className="detail-note"><ShieldCheck size={18} /><span>Carefully wrapped in our Algiers studio, ready to gift or keep.</span></div></div></div></div><section className="section soft-section"><div className="container-wide"><div className="section-head"><div><span className="eyebrow">More from this room</span><h2 className="section-title display">Keep looking.</h2></div></div><div className="product-grid">{related.map((item) => <ProductCard key={item.id} product={item} wished={wishlist.includes(item.id)} onWish={() => onWish(item)} onAdd={() => onAdd(item)} />)}</div></div></section></main>;
 }
 
 function CollectionPage({ onAdd, wishlist, onWish }: { onAdd: (product: Product) => void; wishlist: string[]; onWish: (product: Product) => void }) {
@@ -174,11 +186,14 @@ function CartPage({ cart, onChange, onRemove }: { cart: CartLine[]; onChange: (i
   const { products, collections } = useCatalog();
   const total = cart.reduce((sum, line) => sum + (products.find((product) => product.id === line.productId)?.price ?? 0) * line.quantity, 0);
   if (!cart.length) return <main className="section container-wide"><EmptyState title="Your bag is a quiet place." text="Add a few useful, beautiful things and they will wait here for you." action="Browse the shop" /></main>;
-  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Your selection</span><h1 className="display">The bag.</h1></div></section><section className="section"><div className="container-wide cart-layout"><div className="cart-list">{cart.map((line) => { const product = products.find((item) => item.id === line.productId); if (!product) return null; return <div className="cart-item" key={line.productId}><ProductThumbnail product={product} /><div><h3>{product.name}</h3><p>{money(product.price)} · {collections[product.collection]?.name ?? product.collection}</p></div><div className="cart-controls"><QuantityControl quantity={line.quantity} onChange={(quantity) => onChange(line.productId, quantity)} testId={`cart-quantity-${line.productId}`} /><button className="icon-btn" onClick={() => onRemove(line.productId)} aria-label={`Remove ${product.name}`} data-testid={`button-remove-${product.id}`}><X size={17} /></button></div></div>; })}</div><OrderSummary total={total} /></div></section></main>;
+  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Your selection</span><h1 className="display">The bag.</h1></div></section><section className="section"><div className="container-wide cart-layout"><div className="cart-list">{cart.map((line) => { const product = products.find((item) => item.id === line.productId); if (!product) return null; const lineMax = Math.min(99, line.stockAvailable ?? 99); const short = line.stockAvailable !== null && line.quantity > line.stockAvailable; return <div className="cart-item" key={line.productId}><ProductThumbnail product={product} /><div><h3>{product.name}</h3><p>{money(product.price)} · {collections[product.collection]?.name ?? product.collection}</p>{short && <p data-testid={`stock-short-${line.productId}`} style={{ color: 'var(--ochre)', fontSize: '.78rem', margin: '4px 0 0' }}>Only {line.stockAvailable} left in stock — reduce the quantity to check out.</p>}</div><div className="cart-controls"><QuantityControl quantity={line.quantity} onChange={(quantity) => onChange(line.productId, quantity)} testId={`cart-quantity-${line.productId}`} max={lineMax} /><button className="icon-btn" onClick={() => onRemove(line.productId)} aria-label={`Remove ${product.name}`} data-testid={`button-remove-${product.id}`}><X size={17} /></button></div></div>; })}</div><OrderSummary total={total} /></div></section></main>;
 }
 
 function OrderSummary({ total, checkout = false }: { total: number; checkout?: boolean }) {
-  return <div className="cart-summary"><h2>{checkout ? 'Your order' : 'A good selection.'}</h2><div className="summary-row"><span>Objects</span><span>{money(total)}</span></div><div className="summary-row"><span>Delivery</span><span>{total >= 5000 ? 'Free' : 'Calculated at delivery'}</span></div><div className="summary-row total"><span>Total</span><span>{money(total)}</span></div>{!checkout && <Link className="btn btn-secondary" href="/checkout" data-testid="button-go-checkout">Continue to checkout <ArrowRight size={15} /></Link>}</div>;
+  // Delivery rule comes from @workspace/pricing — the exact function the
+  // server uses when it charges the order, so bag and receipt can't disagree.
+  const fee = deliveryFeeDa(total);
+  return <div className="cart-summary"><h2>{checkout ? 'Your order' : 'A good selection.'}</h2><div className="summary-row"><span>Objects</span><span>{money(total)}</span></div><div className="summary-row"><span>Delivery</span><span>{fee === 0 ? 'Free' : money(fee)}</span></div><div className="summary-row total"><span>Total</span><span>{money(total + fee)}</span></div>{!checkout && <Link className="btn btn-secondary" href="/checkout" data-testid="button-go-checkout">Continue to checkout <ArrowRight size={15} /></Link>}</div>;
 }
 
 function CheckoutPage({ cart, onSubmitOrder }: { cart: CartLine[]; onSubmitOrder: (details: Omit<PlaceOrderRequest, 'cart_id'>) => Promise<Order> }) {
@@ -189,7 +204,7 @@ function CheckoutPage({ cart, onSubmitOrder }: { cart: CartLine[]; onSubmitOrder
   const total = cart.reduce((sum, line) => sum + (products.find((product) => product.id === line.productId)?.price ?? 0) * line.quantity, 0);
   if (placed) return <main className="section container-wide"><div className="confirmation"><div className="confirmation-mark"><Check size={32} /></div><span className="eyebrow">Order confirmed</span><h1>Something lovely is on its way.</h1><p>Thank you for shopping with Sally's. We will call to confirm your order before it leaves Algiers, and it should arrive in 7–10 days.</p><p className="mono" style={{ fontSize:'.75rem', color:'var(--cobalt)' }} data-testid="order-reference">ORDER {placed.reference} · PAYMENT ON DELIVERY · {money(placed.total_da)}</p><Link href="/shop" className="btn btn-primary">Keep looking <ArrowRight size={15} /></Link></div></main>;
   if (!cart.length) return <main className="section container-wide"><EmptyState title="Your checkout is waiting." text="There is nothing in your bag yet." action="Browse the shop" /></main>;
-  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Almost yours</span><h1 className="display">Checkout.</h1><p>Just the essentials. We will call before delivery and collect payment at your door.</p></div></section><section className="section"><div className="container-wide checkout-grid"><div className="form-card"><form onSubmit={async (event) => { event.preventDefault(); const form = event.currentTarget; if (!form.checkValidity() || submitting) return; const data = new FormData(form); setError(null); setSubmitting(true); try { const order = await onSubmitOrder({ contact_name: String(data.get('checkout-name') ?? ''), contact_phone: String(data.get('checkout-phone') ?? ''), shipping_address: String(data.get('checkout-address') ?? ''), customer_note: String(data.get('checkout-note') ?? '') || undefined }); setPlaced(order); } catch (err) { setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.'); } finally { setSubmitting(false); } }}><h2>Delivery details</h2><div className="field"><label htmlFor="checkout-name">Full name</label><input id="checkout-name" name="checkout-name" required placeholder="Amina Belkacem" data-testid="input-checkout-name" /></div><div className="field"><label htmlFor="checkout-phone">Phone number</label><input id="checkout-phone" name="checkout-phone" type="tel" required placeholder="05 50 00 00 00" data-testid="input-checkout-phone" /></div><div className="field"><label htmlFor="checkout-address">Delivery address</label><textarea id="checkout-address" name="checkout-address" required placeholder="Street, neighbourhood, city" data-testid="input-checkout-address" /></div><div className="field"><label htmlFor="checkout-note">Note for the studio (optional)</label><input id="checkout-note" name="checkout-note" placeholder="This is a gift..." data-testid="input-checkout-note" /></div><div style={{ border:'1px solid var(--border)', padding:15, display:'flex', gap:11, alignItems:'start', marginBottom:22 }}><ShieldCheck size={19} color="var(--olive)" /><div><strong style={{ color:'var(--midnight)', fontSize:'.86rem' }}>Payment on delivery</strong><p style={{ margin:'4px 0 0', color:'var(--ink)', fontSize:'.78rem' }}>No card details needed. Pay in cash when your parcel arrives.</p></div></div>{error && <div className="field" role="alert" data-testid="checkout-error"><p style={{ color:'var(--ochre)', margin:0, fontSize:'.82rem' }}>{error}</p></div>}<button className="btn btn-primary" type="submit" disabled={submitting} data-testid="button-place-order">{submitting ? 'Placing your order…' : <>Place order · {money(total)} <ArrowRight size={15} /></>}</button></form></div><OrderSummary total={total} checkout /></div></section></main>;
+  return <main><section className="page-hero"><div className="container-wide"><span className="eyebrow">Almost yours</span><h1 className="display">Checkout.</h1><p>Just the essentials. We will call before delivery and collect payment at your door.</p></div></section><section className="section"><div className="container-wide checkout-grid"><div className="form-card"><form onSubmit={async (event) => { event.preventDefault(); const form = event.currentTarget; if (!form.checkValidity() || submitting) return; const data = new FormData(form); setError(null); setSubmitting(true); try { const order = await onSubmitOrder({ contact_name: String(data.get('checkout-name') ?? ''), contact_phone: String(data.get('checkout-phone') ?? ''), shipping_address: String(data.get('checkout-address') ?? ''), customer_note: String(data.get('checkout-note') ?? '') || undefined }); setPlaced(order); } catch (err) { setError(apiMessage(err, 'Something went wrong. Please try again.')); } finally { setSubmitting(false); } }}><h2>Delivery details</h2><div className="field"><label htmlFor="checkout-name">Full name</label><input id="checkout-name" name="checkout-name" required placeholder="Amina Belkacem" data-testid="input-checkout-name" /></div><div className="field"><label htmlFor="checkout-phone">Phone number</label><input id="checkout-phone" name="checkout-phone" type="tel" required placeholder="05 50 00 00 00" data-testid="input-checkout-phone" /></div><div className="field"><label htmlFor="checkout-address">Delivery address</label><textarea id="checkout-address" name="checkout-address" required placeholder="Street, neighbourhood, city" data-testid="input-checkout-address" /></div><div className="field"><label htmlFor="checkout-note">Note for the studio (optional)</label><input id="checkout-note" name="checkout-note" placeholder="This is a gift..." data-testid="input-checkout-note" /></div><div style={{ border:'1px solid var(--border)', padding:15, display:'flex', gap:11, alignItems:'start', marginBottom:22 }}><ShieldCheck size={19} color="var(--olive)" /><div><strong style={{ color:'var(--midnight)', fontSize:'.86rem' }}>Payment on delivery</strong><p style={{ margin:'4px 0 0', color:'var(--ink)', fontSize:'.78rem' }}>No card details needed. Pay in cash when your parcel arrives.</p></div></div>{error && <div className="field" role="alert" data-testid="checkout-error"><p style={{ color:'var(--ochre)', margin:0, fontSize:'.82rem' }}>{error}</p></div>}          <button className="btn btn-primary" type="submit" disabled={submitting} data-testid="button-place-order">{submitting ? 'Placing your order…' : <>Place order · {money(total + deliveryFeeDa(total))} <ArrowRight size={15} /></>}</button></form></div><OrderSummary total={total} checkout /></div></section></main>;
 }
 
 function WishlistPage({ wishlist, onWish, onAdd }: { wishlist: string[]; onWish: (product: Product) => void; onAdd: (product: Product) => void }) {
@@ -206,7 +221,7 @@ function CartDrawer({ cart, open, onClose, onChange, onRemove }: { cart: CartLin
   const { products, collections } = useCatalog();
   if (!open) return null;
   const total = cart.reduce((sum, line) => sum + (products.find((product) => product.id === line.productId)?.price ?? 0) * line.quantity, 0);
-  return <div style={{ position:'fixed', inset:0, zIndex:35, background:'rgba(31,58,95,.36)' }} onClick={onClose}><aside onClick={(event) => event.stopPropagation()} style={{ marginLeft:'auto', height:'100%', width:'min(440px,100%)', background:'var(--cream)', padding:'24px', overflowY:'auto', boxShadow:'-15px 0 35px rgba(31,58,95,.17)' }}><div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid var(--border)', paddingBottom:17, marginBottom:20 }}><h2 className="display" style={{ color:'var(--midnight)', fontSize:'2rem', margin:0 }}>Your bag</h2><button className="icon-btn" onClick={onClose} aria-label="Close bag" data-testid="button-close-cart"><X /></button></div>{cart.length ? <><div className="cart-list">{cart.map((line) => { const product = products.find((item) => item.id === line.productId); if (!product) return null; return <div className="cart-item" key={line.productId}><ProductThumbnail product={product} /><div><h3 style={{ fontSize:'1rem' }}>{product.name}</h3><p>{money(product.price)}</p></div><div className="cart-controls"><QuantityControl quantity={line.quantity} onChange={(quantity) => onChange(line.productId, quantity)} testId={`drawer-quantity-${product.id}`} /><button className="icon-btn" onClick={() => onRemove(product.id)} aria-label={`Remove ${product.name}`}><X size={15} /></button></div></div>; })}</div><div style={{ marginTop:28 }}><div className="summary-row total"><span>Total</span><span>{money(total)}</span></div><Link href="/checkout" className="btn btn-primary" style={{ width:'100%', marginTop:15 }} onClick={onClose} data-testid="button-drawer-checkout">Checkout <ArrowRight size={15} /></Link><Link href="/cart" className="btn btn-quiet" style={{ width:'100%', marginTop:9 }} onClick={onClose}>View bag</Link></div></> : <EmptyState title="A quiet bag." text="Add something beautiful and useful from the shop." action="Browse objects" />}</aside></div>;
+  return <div style={{ position:'fixed', inset:0, zIndex:35, background:'rgba(31,58,95,.36)' }} onClick={onClose}><aside onClick={(event) => event.stopPropagation()} style={{ marginLeft:'auto', height:'100%', width:'min(440px,100%)', background:'var(--cream)', padding:'24px', overflowY:'auto', boxShadow:'-15px 0 35px rgba(31,58,95,.17)' }}><div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid var(--border)', paddingBottom:17, marginBottom:20 }}><h2 className="display" style={{ color:'var(--midnight)', fontSize:'2rem', margin:0 }}>Your bag</h2><button className="icon-btn" onClick={onClose} aria-label="Close bag" data-testid="button-close-cart"><X /></button></div>{cart.length ? <><div className="cart-list">{cart.map((line) => { const product = products.find((item) => item.id === line.productId); if (!product) return null; const lineMax = Math.min(99, line.stockAvailable ?? 99); return <div className="cart-item" key={line.productId}><ProductThumbnail product={product} /><div><h3 style={{ fontSize:'1rem' }}>{product.name}</h3><p>{money(product.price)}</p></div><div className="cart-controls"><QuantityControl quantity={line.quantity} onChange={(quantity) => onChange(line.productId, quantity)} testId={`drawer-quantity-${product.id}`} max={lineMax} /><button className="icon-btn" onClick={() => onRemove(product.id)} aria-label={`Remove ${product.name}`}><X size={15} /></button></div></div>; })}</div><div style={{ marginTop:28 }}><div className="summary-row total"><span>Total</span><span>{money(total + deliveryFeeDa(total))}</span></div><Link href="/checkout" className="btn btn-primary" style={{ width:'100%', marginTop:15 }} onClick={onClose} data-testid="button-drawer-checkout">Checkout <ArrowRight size={15} /></Link><Link href="/cart" className="btn btn-quiet" style={{ width:'100%', marginTop:9 }} onClick={onClose}>View bag</Link></div></> : <EmptyState title="A quiet bag." text="Add something beautiful and useful from the shop." action="Browse objects" />}</aside></div>;
 }
 
 function AppShell() {
@@ -227,7 +242,11 @@ function AppShell() {
   const cartMissing = cartQuery.error instanceof ApiError && cartQuery.error.status === 404;
   const cart: CartLine[] = cartMissing
     ? []
-    : (cartQuery.data?.items.map((line) => ({ productId: line.product_id, quantity: line.quantity })) ?? []);
+    : (cartQuery.data?.items.map((line) => ({
+        productId: line.product_id,
+        quantity: line.quantity,
+        stockAvailable: line.stock_available,
+      })) ?? []);
   if (isLoading || isError) {
     return (
       <div className="app-shell paper-noise" role={isError ? 'alert' : 'status'}>
@@ -266,7 +285,9 @@ function AppShell() {
       syncCart(await addCartItem(id, { product_id: product.id, quantity }));
       addToast(`${product.name} added to your bag.`);
     } catch (error) {
-      addToast(`Couldn't add ${product.name}: ${error instanceof Error ? error.message : 'please try again'}`);
+      addToast(
+        `Couldn't add ${product.name}: ${apiMessage(error, 'please try again')}`,
+      );
     }
   };
   const toggleWishlist = (product: Product) => {
@@ -278,7 +299,10 @@ function AppShell() {
     try {
       syncCart(await updateCartItem(cartId, id, { quantity }));
     } catch (error) {
-      addToast(`Couldn't update your bag: ${error instanceof Error ? error.message : 'please try again'}`);
+      addToast(`Couldn't update your bag: ${apiMessage(error, 'please try again')}`);
+      // The server refused the change (stock/line state) — pull the real
+      // cart back down so the UI snaps to what checkout would accept.
+      if (error instanceof ApiError && error.status === 409) void cartQuery.refetch();
     }
   };
   const removeCart = async (id: string) => {
@@ -286,7 +310,7 @@ function AppShell() {
     try {
       syncCart(await removeCartItem(cartId, id));
     } catch (error) {
-      addToast(`Couldn't update your bag: ${error instanceof Error ? error.message : 'please try again'}`);
+      addToast(`Couldn't update your bag: ${apiMessage(error, 'please try again')}`);
     }
   };
   // Checkout: the server recomputes totals from live prices, snapshots the
@@ -298,10 +322,18 @@ function AppShell() {
       queryClient.setQueryData(getGetCartQueryKey(cartId), { id: cartId, items: [], item_count: 0, subtotal_da: 0 } satisfies ServerCart);
       return order;
     } catch (error) {
-      // 409: some lines left the catalog — drop them so the next attempt is clean.
       if (error instanceof ApiError && error.status === 409) {
-        const ids = (error.data as { product_ids?: string[] } | null)?.product_ids ?? [];
-        await Promise.all(ids.map((productId) => removeCartItem(cartId, productId).then(syncCart).catch(() => undefined)));
+        const data = error.data as { code?: string; product_ids?: string[] } | null;
+        if (data?.code === 'unavailable') {
+          // Products left the catalog — drop those lines so the next attempt
+          // is clean. (Server answered code `unavailable` + the ids.)
+          const ids = data.product_ids ?? [];
+          await Promise.all(ids.map((productId) => removeCartItem(cartId, productId).then(syncCart).catch(() => undefined)));
+        } else if (data?.code === 'out_of_stock') {
+          // Keep the lines: the customer reduces quantities themselves.
+          // Refresh so stock warnings and quantities reflect the refusal.
+          await cartQuery.refetch();
+        }
       }
       throw error;
     }

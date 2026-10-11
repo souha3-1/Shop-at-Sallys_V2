@@ -39,12 +39,14 @@ export function ProductThumbnail({ product }: { product: Product }) {
 
 export function ProductCard({ product, wished, onWish, onAdd }: { product: Product; wished: boolean; onWish: () => void; onAdd: () => void }) {
   const { collections } = useCatalog();
+  const soldOut = product.stock === 0;
   return (
     <article className="product-card entrance" data-testid={`card-product-${product.id}`}>
       <Link href={`/product/${product.id}`} aria-label={`View ${product.name}`}>
         <div className="product-image-wrap">
           <ProductArtwork product={product} />
           {(product.isNew || product.bestSeller) && <span className="badge">{product.isNew ? 'New in' : 'Beloved'}</span>}
+          {soldOut && <span className="badge" data-testid={`badge-soldout-${product.id}`}>Sold out</span>}
           <button type="button" className="icon-btn wish-float" onClick={(event) => { event.preventDefault(); onWish(); }} aria-label={wished ? `Remove ${product.name} from wishlist` : `Save ${product.name}`} data-testid={`button-wishlist-${product.id}`}>
             <Heart size={18} fill={wished ? 'currentColor' : 'none'} />
           </button>
@@ -58,19 +60,22 @@ export function ProductCard({ product, wished, onWish, onAdd }: { product: Produ
         <span className="price">{money(product.price)}</span>
       </div>
       <div className="product-actions">
-        <button className="btn btn-primary" type="button" onClick={onAdd} data-testid={`button-add-${product.id}`}><ShoppingBag size={14} /> Add to bag</button>
+        <button className="btn btn-primary" type="button" onClick={onAdd} disabled={soldOut} data-testid={`button-add-${product.id}`}>{soldOut ? 'Sold out' : <><ShoppingBag size={14} /> Add to bag</>}</button>
         <Link className="btn btn-quiet" href={`/product/${product.id}`}>Details</Link>
       </div>
     </article>
   );
 }
 
-export function QuantityControl({ quantity, onChange, testId }: { quantity: number; onChange: (quantity: number) => void; testId: string }) {
+export function QuantityControl({ quantity, onChange, testId, max = 99 }: { quantity: number; onChange: (quantity: number) => void; testId: string; max?: number }) {
+  // max = line cap: 99 (the cart CHECK) narrowed by tracked stock. Invalid
+  // quantities can never be produced here: the value stays within 1..max.
+  const capped = Math.min(Math.max(1, quantity), Math.max(1, max));
   return (
     <div className="quantity" data-testid={testId}>
-      <button type="button" onClick={() => onChange(Math.max(1, quantity - 1))} aria-label="Decrease quantity" data-testid={`${testId}-minus`}><Minus size={14} /></button>
-      <span>{quantity}</span>
-      <button type="button" onClick={() => onChange(quantity + 1)} aria-label="Increase quantity" data-testid={`${testId}-plus`}><Plus size={14} /></button>
+      <button type="button" onClick={() => onChange(Math.max(1, capped - 1))} aria-label="Decrease quantity" data-testid={`${testId}-minus`}><Minus size={14} /></button>
+      <span>{capped}</span>
+      <button type="button" onClick={() => onChange(Math.min(capped + 1, Math.max(1, max)))} disabled={capped >= max} aria-label="Increase quantity" data-testid={`${testId}-plus`}><Plus size={14} /></button>
     </div>
   );
 }
