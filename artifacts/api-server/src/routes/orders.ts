@@ -55,6 +55,18 @@ router.post("/orders", async (req, res) => {
   if (!cart) return res.status(404).json({ message: "Cart not found" });
 
   const result = await db.transaction(async (tx) => {
+    // Duplicate-submission guard: lock THIS cart's row first. A second
+    // request for the same cart (double click, second tab, retry) blocks
+    // here until the first submission commits, then reads the emptied cart
+    // below and fails with 409 `empty_cart` instead of creating a second
+    // order. Cart mutations take this same lock first, so lock order is
+    // always cart → inventory — no deadlocks.
+    await tx
+      .select({ id: cartsTable.id })
+      .from(cartsTable)
+      .where(eq(cartsTable.id, body.cart_id))
+      .for("update");
+
     // Left join on purpose: a line whose product was removed (or is not
     // active) shows up with NULL product fields and blocks checkout instead
     // of being silently dropped.
@@ -165,7 +177,7 @@ router.post("/orders", async (req, res) => {
         deliveryFeeDa: deliveryFee,
         totalDa: total,
       })
-      .returning({ id: ordersTable.id });
+      .returning({ id: ordersTable.id, status: ordersTable.status });
 
     await tx.insert(orderItemsTable).values(
       buyable.map((line) => ({
@@ -195,6 +207,9 @@ router.post("/orders", async (req, res) => {
     return {
       order: {
         reference,
+        // The stored row's status (DB default 'pending') so the confirmation
+        // reflects what was actually written, not a client-side guess.
+        status: order.status,
         item_count: units,
         subtotal_da: subtotal,
         delivery_fee_da: deliveryFee,

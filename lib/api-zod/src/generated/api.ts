@@ -227,7 +227,7 @@ export const RemoveCartItemResponse = zod.object({
 
 
 /**
- * Validates the contact details, recomputes totals server-side from live catalog prices (the client's numbers are never trusted), checks and decrements tracked stock inside the same transaction, snapshots the lines into order_items, allocates an 'SS-XXXX' reference, and empties the cart. Payment on delivery: no payment data is collected.
+ * Validates the contact details, recomputes totals server-side from live catalog prices (the client's numbers are never trusted), checks and decrements tracked stock inside the same transaction, snapshots the lines into order_items, allocates an 'SS-XXXX' reference, and empties the cart. The cart row is locked for the duration, so duplicate submissions serialize: exactly one order per cart, the second answer is 409 empty_cart. Payment on delivery: no payment data is collected.
  * @summary Place an order from a cart (checkout)
  */
 export const placeOrderBodyContactNameMax = 120;
@@ -259,6 +259,7 @@ export const placeOrderResponseTotalDaMin = 0;
 
 export const PlaceOrderResponse = zod.object({
   "reference": zod.string().regex(placeOrderResponseReferenceRegExp),
+  "status": zod.enum(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled']).describe('Stored order status as written by checkout'),
   "item_count": zod.number().int().min(1),
   "subtotal_da": zod.number().int().min(placeOrderResponseSubtotalDaMin),
   "delivery_fee_da": zod.number().int().min(placeOrderResponseDeliveryFeeDaMin),
