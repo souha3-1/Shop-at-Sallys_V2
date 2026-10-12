@@ -187,7 +187,9 @@ paths:
         catalog prices (the client's numbers are never trusted), checks and
         decrements tracked stock inside the same transaction, snapshots the
         lines into order_items, allocates an 'SS-XXXX' reference, and empties
-        the cart. Payment on delivery: no payment data is collected.
+        the cart. The cart row is locked for the duration, so duplicate
+        submissions serialize: exactly one order per cart, the second answer
+        is 409 empty_cart. Payment on delivery: no payment data is collected.
       requestBody:
         required: true
         content:
@@ -382,6 +384,10 @@ components:
         reference:
           type: string
           pattern: '^SS-[0-9]{4,10}$'
+        status:
+          type: string
+          description: Stored order status as written by checkout
+          enum: [pending, confirmed, processing, shipped, delivered, cancelled]
         item_count:
           type: integer
           minimum: 1
@@ -396,6 +402,7 @@ components:
           minimum: 0
       required:
         - reference
+        - status
         - item_count
         - subtotal_da
         - delivery_fee_da

@@ -13,5 +13,6 @@ export * from './cart';
 export * from './cartItem';
 export * from './healthStatus';
 export * from './order';
+export * from './orderStatus';
 export * from './placeOrderRequest';
 export * from './updateCartItemRequest';

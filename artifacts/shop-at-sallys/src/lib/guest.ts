@@ -16,6 +16,9 @@ const MAX_ORDERS = 20;
 /** A checkout this browser performed, recorded at confirmation time. */
 export type GuestOrder = {
   reference: string;
+  /** Stored order status from the server ('pending' on placement). Optional
+   *  so entries saved before Phase 8 still validate. */
+  status?: string;
   placedAt: string; // ISO timestamp
   contactName: string;
   itemCount: number;
@@ -53,6 +56,8 @@ const isGuestOrderArray = (value: unknown): value is GuestOrder[] =>
       typeof entry === 'object' &&
       entry !== null &&
       typeof (entry as GuestOrder).reference === 'string' &&
+      ((entry as GuestOrder).status === undefined ||
+        typeof (entry as GuestOrder).status === 'string') &&
       typeof (entry as GuestOrder).placedAt === 'string' &&
       typeof (entry as GuestOrder).contactName === 'string' &&
       typeof (entry as GuestOrder).itemCount === 'number' &&

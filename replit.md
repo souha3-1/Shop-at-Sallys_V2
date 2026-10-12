@@ -34,8 +34,9 @@ _Replace the heading above with the project's name, and this line with one sente
   `supabase/migrations/` are the source of truth for the schema.
 - `lib/api-spec/openapi.yaml` — API contract; regenerate clients with
   `pnpm --filter @workspace/api-spec run codegen` after editing.
-- `artifacts/api-server/src/routes/` — cart (guest, stock-validated) and
-  checkout (server-authoritative pricing + stock decrement, one transaction).
+- `artifacts/api-server/src/routes/` — cart (guest, stock-validated),
+  orders (checkout: server-authoritative pricing + stock decrement, one
+  transaction, duplicate-submit guard) and health.
 - `artifacts/shop-at-sallys/` — storefront (Vite + React, catalog read
   straight from Supabase via anon; mutations go through the api-server;
   guest wishlist + order history in localStorage via `src/lib/guest.ts`).
@@ -64,6 +65,19 @@ _Replace the heading above with the project's name, and this line with one sente
   product_ids and retries; `code: 'out_of_stock'` → client keeps lines and
   asks the customer to reduce quantities; `code: 'empty_cart'` → nothing to
   do.
+- **One order per cart, status straight from the DB (Phase 8).**
+  `POST /api/orders` locks the cart row before anything else: concurrent or
+  repeated submissions serialize, the first one creates the order (201) and
+  the rest read the emptied cart and get 409 `empty_cart` — a double-click
+  can never produce two orders. The confirmation and the account page render
+  the stored row's `status` (DB default `pending`) returned by the server,
+  never a client-side guess. Contact details (name, phone, address) are
+  validated by `PlaceOrderBody` before the transaction opens.
+- **Order history is device-local.** The server knows no customer, so after
+  a successful checkout the client stores the receipt (reference, status,
+  totals, date) in localStorage via `src/lib/guest.ts`. A refresh reads it
+  back and cannot re-submit: the bag is empty, so checkout shows its empty
+  state.
 - **No customer identity anywhere (Phase 7, user decision):** Supabase Auth
   is deliberately NOT introduced — no sign-up/in/out, no sessions, no
   profile rows. Wishlist and order history live in localStorage

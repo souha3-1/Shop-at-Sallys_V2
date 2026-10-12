@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { OrderStatus } from './orderStatus';
 
 /**
  * The placed order (payment on delivery)
@@ -12,6 +13,8 @@
 export interface Order {
   /** @pattern ^SS-[0-9]{4,10}$ */
   reference: string;
+  /** Stored order status as written by checkout */
+  status: OrderStatus;
   /** @minimum 1 */
   item_count: number;
   /** @minimum 0 */

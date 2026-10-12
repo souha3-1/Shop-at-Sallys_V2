@@ -102,11 +102,28 @@ export interface PlaceOrderRequest {
 }
 
 /**
+ * Stored order status as written by checkout
+ */
+export type OrderStatus = typeof OrderStatus[keyof typeof OrderStatus];
+
+
+export const OrderStatus = {
+  pending: 'pending',
+  confirmed: 'confirmed',
+  processing: 'processing',
+  shipped: 'shipped',
+  delivered: 'delivered',
+  cancelled: 'cancelled',
+} as const;
+
+/**
  * The placed order (payment on delivery)
  */
 export interface Order {
   /** @pattern ^SS-[0-9]{4,10}$ */
   reference: string;
+  /** Stored order status as written by checkout */
+  status: OrderStatus;
   /** @minimum 1 */
   item_count: number;
   /** @minimum 0 */

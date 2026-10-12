@@ -134,6 +134,24 @@ async function lockStock(
   return stockState(row ?? null);
 }
 
+/**
+ * Lock the cart row. This MUST be the first lock any transaction takes
+ * (checkout in orders.ts follows the same rule), so per-cart operations
+ * serialize with each other — and with checkout — without ever holding a
+ * cart lock while waiting on an inventory lock in the opposite order.
+ */
+async function lockCart(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  cartId: string,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: cartsTable.id })
+    .from(cartsTable)
+    .where(eq(cartsTable.id, cartId))
+    .for("update");
+  return Boolean(row);
+}
+
 const router: IRouter = Router();
 
 // POST /cart — create an empty guest cart; client stores the returned id.
@@ -182,9 +200,12 @@ router.post("/cart/:cartId/items", async (req, res) => {
   // Tracked products serialize on the inventory row lock inside the
   // transaction; untracked ones rely on the 1..99 SQL CHECK, so a concurrent
   // merge can still trip it (23514) — map that back to the same 400.
-  let outcome: { error: "cap" | "stock" | null; available?: number };
+  let outcome: { error: "cap" | "stock" | "cart" | null; available?: number };
   try {
     outcome = await db.transaction(async (tx) => {
+      // Cart lock first (see lockCart): a concurrent checkout for this cart
+      // serializes with this add instead of swallowing the new line.
+      if (!(await lockCart(tx, cartId))) return { error: "cart" as const };
       const stock = await lockStock(tx, productId);
 
       const [existing] = await tx
@@ -241,6 +262,7 @@ router.post("/cart/:cartId/items", async (req, res) => {
       400,
       `A line cannot hold more than ${MAX_LINE_QUANTITY} units`,
     );
+  if (outcome.error === "cart") return fail(res, 404, "Cart not found");
   if (outcome.error === "stock")
     return conflict(
       res,
@@ -280,6 +302,8 @@ router.patch("/cart/:cartId/items/:productId", async (req, res) => {
       return fail(res, 404, "Product is not in this cart");
   } else {
     const outcome = await db.transaction(async (tx) => {
+      // Cart lock first (see lockCart) — same ordering as checkout/add.
+      if (!(await lockCart(tx, cartId))) return { error: "cart" as const };
       const stock = await lockStock(tx, productId);
       if (stock.tracked && quantity > stock.available)
         return { error: "stock" as const, available: stock.available };
@@ -297,6 +321,7 @@ router.patch("/cart/:cartId/items/:productId", async (req, res) => {
       return { error: null } as const;
     });
 
+    if (outcome.error === "cart") return fail(res, 404, "Cart not found");
     if (outcome.error === "stock")
       return conflict(
         res,
